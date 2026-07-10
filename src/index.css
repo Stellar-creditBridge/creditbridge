@@ -1,0 +1,228 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-primary: #1a1a1a;
+  --color-primary-hover: #000000;
+  --color-primary-container: #27272a;
+  --color-on-background: #1a1a1a;
+  --color-background: #f5f3f0;
+  --color-surface: #fbfbfa;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #eae6e1;
+  --color-surface-container: #e0d9d2;
+  --color-surface-container-high: #d5cbc1;
+  --color-surface-container-highest: #cbbcb0;
+  --color-on-surface: #1a1a1a;
+  --color-on-surface-variant: #52525b;
+  --color-outline: #71717a;
+  --color-outline-variant: rgba(26, 26, 26, 0.1);
+  --color-secondary: #000000;
+  --color-secondary-container: #eae6e1;
+  --color-on-secondary-container: #1a1a1a;
+  --color-tertiary: #5f5a54;
+  --color-tertiary-container: #eae6e1;
+  --color-error: #991b1b;
+  --color-error-container: #fecaca;
+}
+
+@layer base {
+  body {
+    @apply font-sans bg-background text-on-background antialiased;
+  }
+  
+  h1, h2, h3, h4, .font-display {
+    @apply font-display tracking-tight;
+  }
+}
+
+/* Glass card and panel styles with artistic minimalist touch */
+.glass-card {
+  background: rgba(251, 251, 250, 0.9);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(26, 26, 26, 0.08);
+}
+
+.glass-panel {
+  background: rgba(251, 251, 250, 0.9);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(26, 26, 26, 0.1);
+}
+
+/* Hard brutalist box shadows instead of default fuzzy shadows */
+.brutalist-shadow {
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 0.9);
+}
+
+.brutalist-shadow-sm {
+  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 0.9);
+}
+
+.brutalist-shadow-lg {
+  box-shadow: 8px 8px 0px 0px rgba(0, 0, 0, 0.9);
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbbcb0;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a8998d;
+}
+
+/* Midnight High-Contrast Dark Theme definitions */
+.dark {
+  --color-primary: #f5f5f7;
+  --color-primary-hover: #ffffff;
+  --color-primary-container: #121216;
+  --color-on-background: #f5f5f7;
+  --color-background: #020204;
+  --color-surface: #0a0a0f;
+  --color-surface-container-lowest: #050508;
+  --color-surface-container-low: #101015;
+  --color-surface-container: #15151c;
+  --color-surface-container-high: #20202a;
+  --color-surface-container-highest: #282835;
+  --color-on-surface: #f5f5f7;
+  --color-on-surface-variant: #a1a1b5;
+  --color-outline: #4d4d62;
+  --color-outline-variant: rgba(245, 245, 247, 0.15);
+  --color-secondary: #ffffff;
+  --color-secondary-container: #15151c;
+  --color-on-secondary-container: #f5f5f7;
+  --color-tertiary: #8a8a9e;
+  --color-tertiary-container: #15151c;
+
+  /* Class overrides to make layout styles automatically dark-responsive */
+  .border-black\/10, .border-black\/5 {
+    border-color: rgba(245, 245, 247, 0.12) !important;
+  }
+  .divide-black\/10 > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgba(245, 245, 247, 0.12) !important;
+  }
+  .bg-white {
+    background-color: var(--color-surface-container-lowest) !important;
+  }
+  .bg-black {
+    background-color: var(--color-on-background) !important;
+    color: var(--color-background) !important;
+  }
+  .border-black {
+    border-color: var(--color-outline-variant) !important;
+  }
+  .bg-zinc-50 {
+    background-color: var(--color-surface-container-low) !important;
+  }
+  .bg-zinc-100 {
+    background-color: var(--color-surface-container) !important;
+  }
+  .bg-zinc-200 {
+    background-color: var(--color-surface-container-high) !important;
+  }
+  .bg-\[\#f5f3f0\] {
+    background-color: var(--color-background) !important;
+  }
+  .bg-\[\#fbfbfa\] {
+    background-color: var(--color-surface) !important;
+  }
+  .text-black {
+    color: var(--color-on-background) !important;
+  }
+  .text-zinc-400 {
+    color: var(--color-on-surface-variant) !important;
+  }
+  .text-zinc-500 {
+    color: var(--color-on-surface-variant) !important;
+  }
+  .text-zinc-600 {
+    color: var(--color-on-surface-variant) !important;
+  }
+  .text-zinc-700 {
+    color: var(--color-on-background) !important;
+  }
+  .text-zinc-800 {
+    color: var(--color-on-background) !important;
+  }
+  .text-zinc-900 {
+    color: var(--color-on-background) !important;
+  }
+  .hover\:text-black:hover {
+    color: var(--color-on-background) !important;
+  }
+  .hover\:bg-black\/5:hover {
+    background-color: rgba(245, 245, 247, 0.05) !important;
+  }
+  .hover\:bg-zinc-800:hover {
+    background-color: var(--color-surface-container-high) !important;
+  }
+  .hover\:bg-zinc-300:hover {
+    background-color: var(--color-surface-container-high) !important;
+  }
+
+  /* Core buttons and interactive elements */
+  button.bg-black {
+    background-color: var(--color-on-background) !important;
+    color: var(--color-background) !important;
+  }
+  button.bg-black:hover {
+    background-color: #ffffff !important;
+  }
+
+  /* Form controls styling */
+  input[type="text"], input[type="number"], input[type="date"], select, textarea {
+    background-color: var(--color-surface-container-low) !important;
+    border-color: rgba(245, 245, 247, 0.15) !important;
+    color: var(--color-on-background) !important;
+  }
+  
+  /* Scrollbar override */
+  ::-webkit-scrollbar-thumb {
+    background: #4d4d62;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #64647f;
+  }
+
+  /* Micro overlays/cards */
+  .glass-card {
+    background: rgba(10, 10, 15, 0.8) !important;
+    border: 1px solid rgba(245, 245, 247, 0.1) !important;
+  }
+  .glass-panel {
+    background: rgba(10, 10, 15, 0.8) !important;
+    border: 1px solid rgba(245, 245, 247, 0.12) !important;
+  }
+
+  /* Brutalist shadows in dark theme: high contrast white outline */
+  .brutalist-shadow {
+    box-shadow: 4px 4px 0px 0px #ffffff !important;
+  }
+  .brutalist-shadow-sm {
+    box-shadow: 2px 2px 0px 0px #ffffff !important;
+  }
+  .brutalist-shadow-lg {
+    box-shadow: 8px 8px 0px 0px #ffffff !important;
+  }
+}

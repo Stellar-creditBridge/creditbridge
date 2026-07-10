@@ -1,0 +1,6 @@
+{
+  "name": "CreditBridge",
+  "description": "An institutional decentralized invoice financing platform on the Stellar network that enables businesses to turn outstanding invoices into instant working capital.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
