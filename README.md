@@ -261,6 +261,6 @@ MIT © [Stellar CreditBridge](https://github.com/Stellar-CreditBridge)
 
 <div align="center">
 
-Built on **Stellar**. Powered by **Gemini AI**. Designed for institutions.
+
 
 </div>
