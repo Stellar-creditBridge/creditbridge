@@ -3,18 +3,19 @@ import fs from 'fs';
 import { Invoice, Activity, AuditTrailEntry } from './src/types';
 import { INITIAL_INVOICES, INITIAL_ACTIVITIES, INITIAL_AUDIT_TRAIL } from './src/data';
 
-let Database: any = null;
+import DatabaseConstructor from 'better-sqlite3';
+
 let isSqlite = false;
 let sqlDb: any = null;
 
 try {
-  // Dynamic import of better-sqlite3
-  const sqliteModule = await import('better-sqlite3');
-  Database = sqliteModule.default;
+  const dbPath = path.join(process.cwd(), 'creditbridge.db');
+  sqlDb = new DatabaseConstructor(dbPath);
   isSqlite = true;
   console.log("Database manager: loaded better-sqlite3 successfully.");
 } catch (err) {
   console.warn("WARNING: better-sqlite3 failed to load. Falling back to JSON database file.", err);
+  isSqlite = false;
 }
 
 const jsonPath = path.join(process.cwd(), 'creditbridge_fallback.json');
@@ -70,11 +71,8 @@ function saveJson() {
 }
 
 // Database Initialization
-if (isSqlite) {
+if (isSqlite && sqlDb) {
   try {
-    const dbPath = path.join(process.cwd(), 'creditbridge.db');
-    sqlDb = new Database(dbPath);
-    
     // Create tables
     sqlDb.exec(`
       CREATE TABLE IF NOT EXISTS users (
