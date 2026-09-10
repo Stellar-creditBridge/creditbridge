@@ -25,8 +25,8 @@ import {
   ArrowRightLeft
 } from 'lucide-react';
 import { io } from 'socket.io-client';
-import { Invoice, Activity, WalletState, AuditTrailEntry } from './types';
-import { INITIAL_INVOICES, INITIAL_ACTIVITIES, INITIAL_AUDIT_TRAIL } from './data';
+import { Invoice, Activity, WalletState, AuditTrailEntry, Investment } from './types';
+import { INITIAL_INVOICES, INITIAL_ACTIVITIES, INITIAL_AUDIT_TRAIL, INITIAL_INVESTMENTS } from './data';
 import LandingPage from './components/LandingPage';
 import WalletAuth from './components/WalletAuth';
 import Dashboard from './components/Dashboard';
@@ -71,8 +71,9 @@ export default function App() {
   // Global theme state: 'light' or 'midnight'
   const [theme, setTheme] = useState<'light' | 'midnight'>('light');
 
-  // Global state for invoices and activities
+  // Global state for invoices, investments, and activities
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [investments, setInvestments] = useState<Investment[]>(INITIAL_INVESTMENTS);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [auditTrail, setAuditTrail] = useState<AuditTrailEntry[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -107,7 +108,11 @@ export default function App() {
   useEffect(() => {
     const socket = io();
     socket.on('invoice_updated', () => {
-      console.log("Live update received from server, refreshing data...");
+      console.log("Live invoice update received from server, refreshing data...");
+      fetchAllData();
+    });
+    socket.on('investment_created', () => {
+      console.log("Live investment update received from server, refreshing data...");
       fetchAllData();
     });
     return () => { socket.disconnect(); };
@@ -120,6 +125,12 @@ export default function App() {
       if (invoicesRes.ok) {
         const data = await invoicesRes.json();
         setInvoices(data);
+      }
+
+      const investmentsRes = await apiFetch("/api/investments");
+      if (investmentsRes.ok) {
+        const data = await investmentsRes.json();
+        setInvestments(data);
       }
 
       const activitiesRes = await apiFetch("/api/activities");
@@ -328,19 +339,20 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          operatorWallet: wallet.address || 'GA5W32...RK6M'
+          operatorWallet: wallet.address || STELLAR_DEMO_KEYS.MAIN_USER
         })
       });
 
       if (!response.ok) {
-        throw new Error("Failed to repay invoice on backend.");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to repay invoice on backend.");
       }
 
       await fetchAllData();
-      showToast(`Repayment of invoice #${invoiceId} settled successfully!`, 'success');
-    } catch (err) {
+      showToast(`Repayment of invoice #${invoiceId} settled successfully! All associated investment positions marked Settled.`, 'success');
+    } catch (err: any) {
       console.error(err);
-      showToast("Failed to settle repayment.", "error");
+      showToast(err.message || "Failed to settle repayment.", "error");
     }
   };
 
@@ -351,19 +363,21 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           investAmount,
-          operatorWallet: wallet.address || 'GA5W32...RK6M'
+          operatorWallet: wallet.address || STELLAR_DEMO_KEYS.INVESTOR
         })
       });
 
       if (!response.ok) {
-        throw new Error("Failed to allocate investment on backend.");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to allocate investment on backend.");
       }
 
+      const resData = await response.json();
       await fetchAllData();
-      showToast(`Allocation of $${investAmount.toLocaleString()} to invoice #${invoiceId} successful!`, 'success');
-    } catch (err) {
+      showToast(`Allocation of $${investAmount.toLocaleString()} to invoice #${invoiceId} recorded in ledger! Position ID: ${resData.investment?.id || 'Active'}`, 'success');
+    } catch (err: any) {
       console.error(err);
-      showToast("Failed to invest in invoice.", "error");
+      showToast(err.message || "Failed to invest in invoice.", "error");
     }
   };
 
@@ -700,6 +714,7 @@ export default function App() {
               <ErrorBoundary>
                 <Dashboard 
                   invoices={invoices} 
+                  investments={investments}
                   activities={activities}
                   onSubmitInvoice={handleSubmitInvoice}
                   onRepayInvoice={handleRepayInvoice}
@@ -727,6 +742,7 @@ export default function App() {
               <ErrorBoundary>
                 <Marketplace 
                   invoices={invoices} 
+                  investments={investments}
                   onInvest={handleInvestInInvoice}
                   wallet={wallet}
                   setView={handleNavClick}

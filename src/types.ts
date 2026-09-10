@@ -41,3 +41,36 @@ export interface AuditTrailEntry {
   operatorWallet: StellarPublicKey; // Wallet that executed the action
 }
 
+export type InvestmentStatus = 'Active' | 'Settled' | 'Defaulted';
+
+export interface Investment {
+  id: string; // Unique position identifier, e.g. "INV-178903-XXXX"
+  invoiceId: string; // Relational foreign key referencing Invoice.id
+  investorWallet: StellarPublicKey; // Stellar Ed25519 public key
+  amount: number; // Principal invested in USD, 2 decimal places precision
+  capturedApr: number; // APR % captured from invoice at investment time
+  expectedYield: number; // Projected interest yield in USD (not yet earned/paid)
+  expectedReturn: number; // Projected total repayment (principal + expectedYield) in USD
+  timestamp: string; // ISO 8601 creation timestamp
+  maturityDate: string; // Expected maturity date (aligned with invoice dueDate)
+  status: InvestmentStatus; // Current position status
+}
+
+export interface InvestmentWithInvoice extends Investment {
+  partnerName?: string;
+  industry?: string;
+  daysRemaining?: number;
+  invoiceStatus?: 'Funded' | 'Pending' | 'Due Soon' | 'Paid';
+  invoiceAmount?: number;
+  ownershipPercentage?: number;
+}
+
+export interface InvestorPortfolioSummary {
+  totalPrincipalInvested: number;
+  totalExpectedYield: number;
+  totalExpectedRepayment: number;
+  weightedAverageApr: number;
+  activePositionsCount: number;
+  settledPositionsCount: number;
+}
+

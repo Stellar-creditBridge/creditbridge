@@ -15,6 +15,14 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import { StrKey } from "@stellar/stellar-sdk";
 import { STELLAR_DEMO_KEYS } from "./src/utils/stellar";
+import { 
+  roundCurrency, 
+  calculateExpectedYield, 
+  calculateExpectedReturn, 
+  calculateOwnershipPercentage, 
+  calculatePortfolioSummary 
+} from "./src/utils/investmentAccounting";
+import { Investment, InvestmentWithInvoice } from "./src/types";
 
 // --- Stellar Public Key Zod Validator ---
 const stellarAddressSchema = z.string().refine((val) => {
@@ -403,7 +411,7 @@ Provide a professional, realistic corporate credit risk summary including a cred
     }
   });
 
-  // API Route: Invest in Invoice
+  // API Route: Invest in Invoice (creates relational investment position & updates invoice funding atomically)
   app.post("/api/invoices/:id/invest", requireAuth, (req, res) => {
     try {
       const { id } = req.params;
@@ -412,31 +420,85 @@ Provide a professional, realistic corporate credit risk summary including a cred
         return res.status(400).json({ error: "Invalid investment parameters", details: parseResult.error.issues });
       }
       const { investAmount, operatorWallet } = parseResult.data;
-      
+
+      // Validate positive non-zero amount
+      if (typeof investAmount !== 'number' || isNaN(investAmount) || !isFinite(investAmount) || investAmount <= 0) {
+        return res.status(400).json({ error: "Investment amount must be a positive number greater than zero." });
+      }
+
+      // Validate Stellar investor public key
+      const investorKey = operatorWallet.trim();
+      if (!StrKey.isValidEd25519PublicKey(investorKey)) {
+        return res.status(400).json({ 
+          error: "Invalid Stellar Ed25519 public key. Address must be exactly 56 characters and start with 'G'." 
+        });
+      }
+
+      // Verify invoice exists
       const invoices = db.getInvoices();
       const targetInvoice = invoices.find(inv => inv.id === id);
       if (!targetInvoice) {
         return res.status(404).json({ error: `Invoice #${id} not found.` });
       }
 
-      const addedProgress = (investAmount / targetInvoice.amount) * 100;
-      const newProgress = Math.min(100, targetInvoice.fundingProgress + addedProgress);
-      const status = newProgress >= 100 ? 'Funded' : targetInvoice.status;
+      // Check eligibility
+      if (targetInvoice.status === 'Paid') {
+        return res.status(400).json({ error: `Invoice #${id} has already been settled and cannot accept investments.` });
+      }
 
-      db.investInvoice(id, parseFloat(newProgress.toFixed(1)), status);
+      if (targetInvoice.fundingProgress >= 100) {
+        return res.status(400).json({ error: `Invoice #${id} is already 100% funded.` });
+      }
 
-      // Create activity
+      // Calculate remaining funding capacity
+      const currentFunded = roundCurrency((targetInvoice.amount * targetInvoice.fundingProgress) / 100);
+      const remainingCapacity = roundCurrency(Math.max(0, targetInvoice.amount - currentFunded));
+
+      if (roundCurrency(investAmount) > remainingCapacity + 0.009) {
+        return res.status(400).json({ 
+          error: `Investment amount ($${investAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}) exceeds remaining funding capacity ($${remainingCapacity.toLocaleString('en-US', { minimumFractionDigits: 2 })}).` 
+        });
+      }
+
+      // Investment accounting calculations (server-authoritative)
+      const cleanPrincipal = roundCurrency(investAmount);
+      const capturedApr = targetInvoice.annualReturn;
+      const durationDays = Math.max(1, targetInvoice.daysRemaining);
+      const expectedYield = calculateExpectedYield(cleanPrincipal, capturedApr, durationDays);
+      const expectedReturn = calculateExpectedReturn(cleanPrincipal, expectedYield);
+      const maturityDate = targetInvoice.dueDate;
+
+      // Unique investment record ID (supports multiple distinct allocations by same investor into same invoice)
+      const investmentId = `INV-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      
+      const newInvestment: Investment = {
+        id: investmentId,
+        invoiceId: id,
+        investorWallet: investorKey,
+        amount: cleanPrincipal,
+        capturedApr,
+        expectedYield,
+        expectedReturn,
+        timestamp: new Date().toISOString(),
+        maturityDate,
+        status: 'Active'
+      };
+
+      // Compute new invoice funding progress
+      const addedProgress = (cleanPrincipal / targetInvoice.amount) * 100;
+      const newProgress = Math.min(100, roundCurrency(targetInvoice.fundingProgress + addedProgress));
+      const status = newProgress >= 100 ? (targetInvoice.daysRemaining <= 0 ? 'Due Soon' : 'Funded') : targetInvoice.status;
+
+      // Activity and Audit entries
       const activityId = `act-${Date.now()}`;
       const activity = {
         id: activityId,
-        title: `Allocated $${investAmount.toLocaleString()} to #${id}`,
+        title: `Allocated $${cleanPrincipal.toLocaleString()} to #${id}`,
         timestamp: 'Just now',
-        amount: `$${investAmount.toLocaleString()}`,
+        amount: `$${cleanPrincipal.toLocaleString()}`,
         type: 'approval' as const
       };
-      db.addActivity(activity);
 
-      // Create audit trail entry
       const auditId = `trail-${Date.now()}`;
       const auditEntry = {
         id: auditId,
@@ -444,15 +506,140 @@ Provide a professional, realistic corporate credit risk summary including a cred
         eventId: id,
         eventName: targetInvoice.partnerName,
         actionType: 'Asset Funding' as const,
-        details: `Capital allocation: Secured $${investAmount.toLocaleString()} worth of fractioned receivables. New pool funding status: ${newProgress.toFixed(1)}%.`,
+        details: `Capital allocation: Position ${investmentId} created for $${cleanPrincipal.toLocaleString()} USD (${capturedApr}% APR, projected yield $${expectedYield.toFixed(2)}). New invoice progress: ${newProgress.toFixed(1)}%.`,
         txHash: generateSimTxHash(),
-        operatorWallet: operatorWallet || STELLAR_DEMO_KEYS.INVESTOR
+        operatorWallet: investorKey
       };
-      db.addAuditEntry(auditEntry);
-      io.emit("invoice_updated", { type: "invest", invoiceId: id });
-      res.json({ success: true, fundingProgress: newProgress, status, activity, auditEntry });
+
+      // Execute atomic transaction in persistence layer
+      db.recordInvestment(newInvestment, parseFloat(newProgress.toFixed(1)), status, activity, auditEntry);
+
+      // Real-time notification
+      io.emit("invoice_updated", { type: "invest", invoiceId: id, fundingProgress: newProgress, status });
+      io.emit("investment_created", newInvestment);
+
+      res.status(201).json({
+        success: true,
+        investment: newInvestment,
+        fundingProgress: newProgress,
+        status,
+        activity,
+        auditEntry
+      });
     } catch (err: any) {
+      console.error("Investment allocation error:", err);
       res.status(500).json({ error: "Failed to allocate investment", details: err.message });
+    }
+  });
+
+  // API Route: Get all investments with optional filtering
+  app.get("/api/investments", (req, res) => {
+    try {
+      const { investor, invoiceId } = req.query;
+      let investments = db.getInvestments();
+
+      if (investor && typeof investor === 'string') {
+        const trimmed = investor.trim();
+        if (!StrKey.isValidEd25519PublicKey(trimmed)) {
+          return res.status(400).json({ error: "Invalid investor Stellar public key filter." });
+        }
+        investments = investments.filter(inv => inv.investorWallet === trimmed);
+      }
+
+      if (invoiceId && typeof invoiceId === 'string') {
+        investments = investments.filter(inv => inv.invoiceId === invoiceId.trim());
+      }
+
+      res.json(investments);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retrieve investments", details: err.message });
+    }
+  });
+
+  // API Route: Get investments by investor Stellar public key with joined invoice details & portfolio summary
+  app.get("/api/investments/investor/:walletAddress", (req, res) => {
+    try {
+      const { walletAddress } = req.params;
+      if (!walletAddress || !StrKey.isValidEd25519PublicKey(walletAddress.trim())) {
+        return res.status(400).json({ 
+          error: "Invalid Stellar Ed25519 public key. Address must start with 'G' and be exactly 56 characters long." 
+        });
+      }
+
+      const investorKey = walletAddress.trim();
+      const rawInvestments = db.getInvestmentsByInvestor(investorKey);
+      const invoices = db.getInvoices();
+      const invoiceMap = new Map(invoices.map(inv => [inv.id, inv]));
+
+      // Enrich with invoice metadata and ownership share
+      const enriched: InvestmentWithInvoice[] = rawInvestments.map(inv => {
+        const invoice = invoiceMap.get(inv.invoiceId);
+        return {
+          ...inv,
+          partnerName: invoice?.partnerName || 'Unknown Partner',
+          industry: invoice?.industry || 'Logistics',
+          daysRemaining: invoice?.daysRemaining ?? 0,
+          invoiceStatus: invoice?.status,
+          invoiceAmount: invoice?.amount,
+          ownershipPercentage: invoice ? calculateOwnershipPercentage(inv.amount, invoice.amount) : 0
+        };
+      });
+
+      const portfolioSummary = calculatePortfolioSummary(enriched);
+
+      res.json({
+        walletAddress: investorKey,
+        investments: enriched,
+        portfolioSummary
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retrieve investor positions", details: err.message });
+    }
+  });
+
+  // API Route: Get investments by invoice ID
+  app.get("/api/investments/invoice/:invoiceId", (req, res) => {
+    try {
+      const { invoiceId } = req.params;
+      const invoices = db.getInvoices();
+      const targetInvoice = invoices.find(inv => inv.id === invoiceId);
+      if (!targetInvoice) {
+        return res.status(404).json({ error: `Invoice #${invoiceId} not found.` });
+      }
+
+      const investments = db.getInvestmentsByInvoice(invoiceId);
+      res.json({
+        invoiceId,
+        partnerName: targetInvoice.partnerName,
+        targetAmount: targetInvoice.amount,
+        fundingProgress: targetInvoice.fundingProgress,
+        investments
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retrieve invoice investments", details: err.message });
+    }
+  });
+
+  // API Route: Get single investment position by ID
+  app.get("/api/investments/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      const investment = db.getInvestmentById(id);
+      if (!investment) {
+        return res.status(404).json({ error: `Investment position #${id} not found.` });
+      }
+
+      const invoice = db.getInvoices().find(inv => inv.id === investment.invoiceId);
+      res.json({
+        ...investment,
+        partnerName: invoice?.partnerName,
+        industry: invoice?.industry,
+        daysRemaining: invoice?.daysRemaining,
+        invoiceStatus: invoice?.status,
+        ownershipPercentage: invoice ? calculateOwnershipPercentage(investment.amount, invoice.amount) : 0
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retrieve investment", details: err.message });
     }
   });
 

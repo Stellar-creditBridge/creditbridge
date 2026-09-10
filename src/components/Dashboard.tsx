@@ -28,14 +28,26 @@ import {
   Lightbulb,
   Cpu,
   ChevronLeft,
-  Info
+  Info,
+  Coins,
+  ShieldCheck,
+  UserCheck,
+  Layers,
+  Percent
 } from 'lucide-react';
-import { Invoice, Activity, WalletState } from '../types';
+import { Invoice, Activity, WalletState, Investment } from '../types';
 import { exportInvoiceToPDF } from '../utils/pdfExport';
 import { useToast } from './Toast';
 import D3LineChart from './D3LineChart';
 import { QRCodeSVG } from 'qrcode.react';
 import { STELLAR_DEMO_KEYS, formatStellarAddress } from '../utils/stellar';
+import { 
+  calculatePortfolioSummary, 
+  calculateOwnershipPercentage, 
+  calculateExpectedYield, 
+  calculateExpectedReturn,
+  roundCurrency 
+} from '../utils/investmentAccounting';
 
 const QUICK_TIPS = [
   {
@@ -58,6 +70,7 @@ const QUICK_TIPS = [
 
 interface DashboardProps {
   invoices: Invoice[];
+  investments?: Investment[];
   activities: Activity[];
   onSubmitInvoice: (partnerName: string, amount: number, dueDate: string, industry: 'Logistics' | 'Technology' | 'Healthcare' | 'Energy' | 'Retail') => void;
   onRepayInvoice: (invoiceId: string) => void;
@@ -67,7 +80,7 @@ interface DashboardProps {
   theme?: string;
 }
 
-export default function Dashboard({ invoices, activities, onSubmitInvoice, onRepayInvoice, onUpdateRisk, setView, wallet, theme }: DashboardProps) {
+export default function Dashboard({ invoices, investments = [], activities, onSubmitInvoice, onRepayInvoice, onUpdateRisk, setView, wallet, theme }: DashboardProps) {
   const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
@@ -100,6 +113,14 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
   const [autoSettleMaturity, setAutoSettleMaturity] = useState(false);
   const [autoApproveTerms, setAutoApproveTerms] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
+
+  // Relational Investment Ledger Tab & Filters
+  const [activeLedgerTab, setActiveLedgerTab] = useState<'receivables' | 'investments'>('receivables');
+  const [investmentSearchTerm, setInvestmentSearchTerm] = useState('');
+  const [investmentFilterScope, setInvestmentFilterScope] = useState<'all' | 'my'>('all');
+  const [investmentStatusFilter, setInvestmentStatusFilter] = useState<'all' | 'Active' | 'Settled'>('all');
+  const [inspectingPosition, setInspectingPosition] = useState<Investment | null>(null);
+  const [isExportInvestmentsConfirmOpen, setIsExportInvestmentsConfirmOpen] = useState(false);
 
   // Yield Calculator State
   const [calcAmount, setCalcAmount] = useState('10000');
@@ -330,6 +351,84 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
     showToast("Ledger records exported to CSV successfully!", "success");
   };
 
+  // Filter investments based on search, scope, and status
+  const currentInvestorKey = wallet?.address || STELLAR_DEMO_KEYS.INVESTOR;
+  const filteredInvestments = investments.filter(invst => {
+    // Scope filter
+    if (investmentFilterScope === 'my') {
+      if (invst.investorWallet !== currentInvestorKey) return false;
+    }
+    // Status filter
+    if (investmentStatusFilter !== 'all' && invst.status !== investmentStatusFilter) {
+      return false;
+    }
+    // Search query
+    const query = investmentSearchTerm.toLowerCase();
+    const invData = invoices.find(i => i.id === invst.invoiceId);
+    return (
+      invst.id.toLowerCase().includes(query) ||
+      invst.invoiceId.toLowerCase().includes(query) ||
+      invst.investorWallet.toLowerCase().includes(query) ||
+      (invData && invData.partnerName.toLowerCase().includes(query))
+    );
+  });
+
+  // Calculate portfolio metrics dynamically using cent-precision accounting
+  const portfolioSummary = calculatePortfolioSummary(
+    investmentFilterScope === 'my' 
+      ? investments.filter(i => i.investorWallet === currentInvestorKey) 
+      : investments
+  );
+
+  const handleDownloadInvestmentsCSV = () => {
+    const headers = [
+      'Position ID',
+      'Invoice ID',
+      'Partner Debtor',
+      'Investor Wallet',
+      'Principal ($)',
+      'Ownership (%)',
+      'Locked APR (%)',
+      'Tenor Days',
+      'Projected Yield ($)',
+      'Expected Return ($)',
+      'Allocated At',
+      'Position Status'
+    ];
+
+    const rows = filteredInvestments.map(invst => {
+      const invData = invoices.find(i => i.id === invst.invoiceId);
+      const ownership = invData ? calculateOwnershipPercentage(invst.amount, invData.amount) : 0;
+      const daysRemaining = invData?.daysRemaining ?? 30;
+      return [
+        invst.id,
+        invst.invoiceId,
+        invData ? `"${invData.partnerName.replace(/"/g, '""')}"` : 'Unknown',
+        invst.investorWallet,
+        invst.amount.toFixed(2),
+        ownership.toFixed(2),
+        invst.capturedApr.toFixed(2),
+        daysRemaining,
+        invst.expectedYield.toFixed(2),
+        invst.expectedReturn.toFixed(2),
+        invst.timestamp,
+        invst.status
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `creditbridge_investments_ledger_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`Exported ${filteredInvestments.length} investment ledger positions to CSV!`, 'success');
+  };
+
   return (
     <div id="dashboard-view" className="w-full text-left bg-[#f5f3f0] min-h-screen p-6 sm:p-12">
       
@@ -424,6 +523,104 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
           <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
             Est. value <span className="font-bold text-black">${pendingValue.toLocaleString('en-US')}</span>
           </p>
+        </div>
+      </div>
+
+      {/* Relational Investment Portfolio Accounting Banner */}
+      <div className="bg-white border border-black/10 p-6 mb-12 shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-black/10 pb-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-black text-white">
+              <Coins className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-display font-bold italic text-lg text-on-background">Investor Accounting & Capital Ledger</h4>
+                <span className="text-[8px] font-mono px-2 py-0.5 bg-emerald-100 text-emerald-800 uppercase font-bold border border-emerald-300">
+                  Relational Ledger
+                </span>
+              </div>
+              <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest mt-0.5">
+                Audited positions, locked APR terms, and unearned projected yield entitlements.
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <div className="flex border border-black/10 bg-zinc-50 p-0.5">
+              <button
+                onClick={() => setInvestmentFilterScope('all')}
+                className={`px-3 py-1 text-[9px] font-mono uppercase tracking-wider font-bold cursor-pointer transition-all ${investmentFilterScope === 'all' ? 'bg-black text-white' : 'text-zinc-600 hover:bg-black/5'}`}
+              >
+                All Positions ({investments.length})
+              </button>
+              <button
+                onClick={() => setInvestmentFilterScope('my')}
+                className={`px-3 py-1 text-[9px] font-mono uppercase tracking-wider font-bold cursor-pointer transition-all ${investmentFilterScope === 'my' ? 'bg-black text-white' : 'text-zinc-600 hover:bg-black/5'}`}
+              >
+                My Wallet ({investments.filter(i => i.investorWallet === currentInvestorKey).length})
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="space-y-1 text-left">
+            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
+              Total Capital Allocated
+            </span>
+            <h3 className="text-2xl font-bold font-mono text-black">
+              ${portfolioSummary.totalPrincipalInvested.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h3>
+            <span className="text-[9px] font-mono text-zinc-500 block">
+              Across {portfolioSummary.activePositionsCount + portfolioSummary.settledPositionsCount} positions
+            </span>
+          </div>
+
+          <div className="space-y-1 text-left">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">
+                Projected Yield
+              </span>
+              <span className="text-[7px] font-mono px-1 py-0.2 bg-amber-100 text-amber-800 uppercase font-bold">Unearned</span>
+            </div>
+            <h3 className="text-2xl font-bold font-mono text-emerald-700">
+              +${portfolioSummary.totalExpectedYield.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h3>
+            <span className="text-[9px] font-mono text-zinc-500 block">
+              Contingent upon debtor settlement
+            </span>
+          </div>
+
+          <div className="space-y-1 text-left">
+            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
+              Weighted Average APR
+            </span>
+            <h3 className="text-2xl font-bold font-mono text-black">
+              {portfolioSummary.weightedAverageApr.toFixed(2)}%
+            </h3>
+            <span className="text-[9px] font-mono text-zinc-500 block">
+              Fixed at allocation time
+            </span>
+          </div>
+
+          <div className="space-y-1 text-left">
+            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
+              Settlement Status
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-lg font-bold font-mono text-blue-700">
+                {portfolioSummary.activePositionsCount} Active
+              </span>
+              <span className="text-zinc-300">•</span>
+              <span className="text-lg font-bold font-mono text-emerald-700">
+                {portfolioSummary.settledPositionsCount} Settled
+              </span>
+            </div>
+            <span className="text-[9px] font-mono text-zinc-500 block">
+              Expected Return: ${portfolioSummary.totalExpectedRepayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1237,9 +1434,41 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
         </div>
       </div>
 
-      {/* Invoices Table/Calendar Section */}
+      {/* Ledger Section (Receivables vs Investment Positions) */}
       <section className="mt-16">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
+        {/* Ledger Navigation Tabs */}
+        <div className="flex border-b border-black/10 mb-6 gap-6">
+          <button
+            onClick={() => setActiveLedgerTab('receivables')}
+            className={`pb-3 font-mono text-xs uppercase tracking-widest font-bold flex items-center gap-2 cursor-pointer transition-colors border-b-2 -mb-[1px] ${
+              activeLedgerTab === 'receivables' 
+                ? 'border-black text-black' 
+                : 'border-transparent text-zinc-400 hover:text-black'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>Active Receivables ({invoices.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveLedgerTab('investments')}
+            className={`pb-3 font-mono text-xs uppercase tracking-widest font-bold flex items-center gap-2 cursor-pointer transition-colors border-b-2 -mb-[1px] ${
+              activeLedgerTab === 'investments' 
+                ? 'border-black text-black' 
+                : 'border-transparent text-zinc-400 hover:text-black'
+            }`}
+          >
+            <Coins className="w-4 h-4" />
+            <span>Investment Positions Ledger ({investments.length})</span>
+            {investments.some(i => i.status === 'Active') && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            )}
+          </button>
+        </div>
+
+        {activeLedgerTab === 'receivables' ? (
+          <div>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <div>
               <h4 className="text-2xl font-display font-bold italic text-on-background">Active Receivables</h4>
@@ -1543,6 +1772,274 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
             </div>
           </div>
         </div>
+          </div>
+        ) : (
+          <div>
+            {/* Relational Investment Positions Ledger View */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+              <div>
+                <h4 className="text-2xl font-display font-bold italic text-on-background">Investment Positions Ledger</h4>
+                <p className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
+                  Individual investor capital allocations, locked terms, and entitlement accounting.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                {/* Search Box */}
+                <div className="relative w-full sm:w-60">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search ID, debtor, or key..."
+                    value={investmentSearchTerm}
+                    onChange={(e) => setInvestmentSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border border-black/10 bg-white rounded-none text-xs font-mono font-bold focus:border-black outline-none"
+                  />
+                </div>
+
+                {/* Scope Filter */}
+                <div className="flex border border-black/10 bg-white p-0.5">
+                  <button
+                    onClick={() => setInvestmentFilterScope('all')}
+                    className={`px-3 py-1.5 text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${investmentFilterScope === 'all' ? 'bg-black text-white' : 'text-zinc-600 hover:bg-black/5'}`}
+                  >
+                    All Positions
+                  </button>
+                  <button
+                    onClick={() => setInvestmentFilterScope('my')}
+                    className={`px-3 py-1.5 text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${investmentFilterScope === 'my' ? 'bg-black text-white' : 'text-zinc-600 hover:bg-black/5'}`}
+                  >
+                    My Positions
+                  </button>
+                </div>
+
+                {/* Status Filter */}
+                <div className="flex border border-black/10 bg-white p-0.5">
+                  <button
+                    onClick={() => setInvestmentStatusFilter('all')}
+                    className={`px-2.5 py-1.5 text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${investmentStatusFilter === 'all' ? 'bg-black text-white' : 'text-zinc-600 hover:bg-black/5'}`}
+                  >
+                    All Status
+                  </button>
+                  <button
+                    onClick={() => setInvestmentStatusFilter('Active')}
+                    className={`px-2.5 py-1.5 text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${investmentStatusFilter === 'Active' ? 'bg-black text-white' : 'text-zinc-600 hover:bg-black/5'}`}
+                  >
+                    Active
+                  </button>
+                  <button
+                    onClick={() => setInvestmentStatusFilter('Settled')}
+                    className={`px-2.5 py-1.5 text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${investmentStatusFilter === 'Settled' ? 'bg-black text-white' : 'text-zinc-600 hover:bg-black/5'}`}
+                  >
+                    Settled
+                  </button>
+                </div>
+
+                {/* Export CSV Button */}
+                <button
+                  onClick={() => setIsExportInvestmentsConfirmOpen(true)}
+                  title="Export filtered investment positions as CSV"
+                  className="bg-black hover:bg-zinc-800 text-white px-4 py-2 rounded-none font-mono text-[10px] uppercase tracking-widest font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shrink-0 h-10 border border-black"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Positions Table */}
+            <div className="bg-white rounded-none border border-black/10 shadow-sm overflow-hidden text-left">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-black/10 bg-[#f5f3f0] text-[9px] font-mono font-bold text-zinc-500 uppercase tracking-widest">
+                      <th className="px-6 py-4 text-left">Position ID</th>
+                      <th className="px-6 py-4 text-left">Receivable / Debtor</th>
+                      <th className="px-6 py-4 text-left">Investor Key</th>
+                      <th className="px-6 py-4 text-right">Principal</th>
+                      <th className="px-6 py-4 text-right">Share</th>
+                      <th className="px-6 py-4 text-right">Locked APR</th>
+                      <th className="px-6 py-4 text-right">Projected Yield</th>
+                      <th className="px-6 py-4 text-right">Maturity Return</th>
+                      <th className="px-6 py-4 text-center">Status</th>
+                      <th className="px-6 py-4 text-right">Audit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-black/5 text-xs font-mono">
+                    {filteredInvestments.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="px-6 py-16 text-center text-zinc-400">
+                          <Coins className="w-8 h-8 mx-auto mb-3 text-zinc-300 stroke-1" />
+                          <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-600">No Investment Positions Found</p>
+                          <p className="text-[11px] font-sans text-zinc-400 mt-1 max-w-sm mx-auto">
+                            {investmentFilterScope === 'my' 
+                              ? "You haven't allocated capital to any receivables with this wallet yet."
+                              : "No positions match the specified filters or search query."}
+                          </p>
+                          <button
+                            onClick={() => setView('marketplace')}
+                            className="mt-4 inline-flex items-center gap-2 bg-black hover:bg-zinc-800 text-white px-4 py-2 font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                          >
+                            Explore Marketplace
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredInvestments.map((invst) => {
+                        const invData = invoices.find(i => i.id === invst.invoiceId);
+                        const isMyPosition = invst.investorWallet === currentInvestorKey;
+
+                        return (
+                          <tr key={invst.id} className="hover:bg-zinc-50/70 transition-colors">
+                            {/* Position ID */}
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="font-bold text-black">{invst.id}</span>
+                              <span className="block text-[9px] text-zinc-400 font-sans mt-0.5">
+                                {new Date(invst.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                            </td>
+
+                            {/* Receivable / Debtor */}
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-black">{invData?.partnerName || 'Unknown Partner'}</span>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[9px] text-zinc-500 font-mono">{invst.invoiceId}</span>
+                                  {invData?.industry && (
+                                    <span className="text-[8px] font-mono px-1 py-0.2 bg-zinc-100 text-zinc-600 border border-zinc-200">
+                                      {invData.industry}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Investor Key */}
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-[11px] text-zinc-700">
+                                  {formatStellarAddress(invst.investorWallet)}
+                                </span>
+                                {isMyPosition && (
+                                  <span className="text-[8px] font-mono font-bold px-1 py-0.2 bg-black text-white">
+                                    YOU
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(invst.investorWallet);
+                                    showToast("Investor Stellar key copied to clipboard", "info");
+                                  }}
+                                  className="text-zinc-400 hover:text-black cursor-pointer p-1"
+                                  title="Copy Stellar Public Key"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* Principal */}
+                            <td className="px-6 py-4 text-right whitespace-nowrap font-bold text-black">
+                              ${invst.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+
+                            {/* Share */}
+                            <td className="px-6 py-4 text-right whitespace-nowrap text-zinc-600">
+                              {calculateOwnershipPercentage(invst.amount, invData?.amount || invst.amount).toFixed(2)}%
+                            </td>
+
+                            {/* Locked APR */}
+                            <td className="px-6 py-4 text-right whitespace-nowrap font-bold text-black">
+                              <span className="inline-flex items-center gap-1">
+                                {invst.capturedApr.toFixed(2)}%
+                              </span>
+                            </td>
+
+                            {/* Projected Yield */}
+                            <td className="px-6 py-4 text-right whitespace-nowrap">
+                              <span className="font-bold text-emerald-700">
+                                +${invst.expectedYield.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                              <span className="block text-[8px] text-amber-600 uppercase font-bold">Unearned</span>
+                            </td>
+
+                            {/* Maturity Return */}
+                            <td className="px-6 py-4 text-right whitespace-nowrap font-bold text-black">
+                              ${invst.expectedReturn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+
+                            {/* Status */}
+                            <td className="px-6 py-4 text-center whitespace-nowrap">
+                              {invst.status === 'Active' ? (
+                                <span className="px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[9px] font-bold uppercase inline-flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                  Active
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[9px] font-bold uppercase inline-flex items-center gap-1">
+                                  <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                  Settled
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-6 py-4 text-right whitespace-nowrap">
+                              <button
+                                onClick={() => setInspectingPosition(invst)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 border border-black/10 hover:border-black text-black text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer bg-white"
+                              >
+                                <Eye className="w-3 h-3" />
+                                Audit
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Investment Accounting Legend & Standards */}
+            <div className="mt-4 bg-zinc-50 border border-black/10 p-5 text-left space-y-4">
+              <div className="flex items-center gap-2 border-b border-black/5 pb-2">
+                <ShieldCheck className="w-4 h-4 text-black shrink-0" />
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-black">
+                  CreditBridge Relational Ledger Accounting Standards
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs font-sans text-zinc-600">
+                <div className="space-y-1.5">
+                  <h6 className="font-mono font-bold text-[9px] uppercase tracking-wider text-zinc-800">
+                    1. Fixed APR at Allocation
+                  </h6>
+                  <p className="leading-relaxed">
+                    Investor positions irrevocably lock the annual percentage rate (APR) in effect at the exact moment capital was committed.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <h6 className="font-mono font-bold text-[9px] uppercase tracking-wider text-zinc-800">
+                    2. Unearned Projected Yield
+                  </h6>
+                  <p className="leading-relaxed">
+                    Projected returns remain unearned until the debtor executes on-chain repayment. Yield is accrued based on actual days to maturity.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <h6 className="font-mono font-bold text-[9px] uppercase tracking-wider text-zinc-800">
+                    3. Pro-Rata Settlement Distribution
+                  </h6>
+                  <p className="leading-relaxed">
+                    When repayment is confirmed on the Stellar network, principal and interest are distributed proportionally across all backers.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Invoice Submission Modal Dialog */}
@@ -1833,6 +2330,309 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
                   onClick={() => {
                     handleDownloadCSV();
                     setIsExportConfirmOpen(false);
+                  }}
+                  className="px-6 py-2.5 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                >
+                  Confirm Export
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Investment Position Audit Certificate Modal */}
+        {inspectingPosition && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setInspectingPosition(null)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.98, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.98, opacity: 0, y: 10 }}
+              className="bg-[#f5f3f0] border border-black/20 rounded-none w-full max-w-xl p-6 sm:p-8 shadow-2xl relative z-10 overflow-hidden text-left"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-start border-b border-black/10 pb-4 mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-black text-white">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-display font-bold italic text-black">
+                      Position Audit Certificate
+                    </h3>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="font-mono text-[10px] font-bold text-zinc-500 uppercase">
+                        {inspectingPosition.id}
+                      </span>
+                      <span className="text-zinc-300">•</span>
+                      <span className="font-mono text-[10px] text-zinc-500">
+                        {new Date(inspectingPosition.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setInspectingPosition(null)}
+                  className="p-1 hover:bg-black/5 text-zinc-400 hover:text-black transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body Content */}
+              {(() => {
+                const relatedInvoice = invoices.find(i => i.id === inspectingPosition.invoiceId);
+                const tenorDays = relatedInvoice?.daysRemaining ?? 30;
+                const ownershipShare = calculateOwnershipPercentage(inspectingPosition.amount, relatedInvoice?.amount || inspectingPosition.amount);
+
+                return (
+                  <div className="space-y-6">
+                    {/* Status & Debtor Info */}
+                    <div className="p-4 bg-white border border-black/10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div>
+                        <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Receivable & Debtor
+                        </span>
+                        <span className="font-bold font-mono text-sm text-black">
+                          {relatedInvoice?.partnerName || 'Debtor Partner'}
+                        </span>
+                        <span className="text-[10px] font-mono text-zinc-500 block">
+                          Invoice ID: {inspectingPosition.invoiceId}
+                        </span>
+                      </div>
+
+                      <div className="text-left sm:text-right">
+                        <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Position Status
+                        </span>
+                        {inspectingPosition.status === 'Active' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[9px] font-bold uppercase mt-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                            Active (In Escrow)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[9px] font-bold uppercase mt-0.5">
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            Settled on Ledger
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Investor Stellar Public Key */}
+                    <div className="p-3 bg-zinc-100/70 border border-black/5 flex items-center justify-between gap-3">
+                      <div className="overflow-hidden">
+                        <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Investor Stellar Key
+                        </span>
+                        <span className="font-mono text-[10px] text-zinc-800 break-all font-semibold select-all">
+                          {inspectingPosition.investorWallet}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(inspectingPosition.investorWallet);
+                          showToast("Stellar address copied to clipboard", "info");
+                        }}
+                        className="p-1.5 border border-black/10 hover:border-black bg-white text-zinc-600 hover:text-black shrink-0 transition-colors cursor-pointer"
+                        title="Copy full address"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Financial Accounting Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="p-3 bg-white border border-black/10">
+                        <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Capital Allocated
+                        </span>
+                        <span className="text-base font-bold font-mono text-black">
+                          ${inspectingPosition.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-white border border-black/10">
+                        <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Ownership Share
+                        </span>
+                        <span className="text-base font-bold font-mono text-black">
+                          {ownershipShare.toFixed(2)}%
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-white border border-black/10">
+                        <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Locked APR
+                        </span>
+                        <span className="text-base font-bold font-mono text-black">
+                          {inspectingPosition.capturedApr.toFixed(2)}%
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-white border border-black/10">
+                        <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Tenor Horizon
+                        </span>
+                        <span className="text-base font-bold font-mono text-black">
+                          {tenorDays} days
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-white border border-black/10">
+                        <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Projected Yield
+                        </span>
+                        <span className="text-base font-bold font-mono text-emerald-700">
+                          +${inspectingPosition.expectedYield.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-black text-white border border-black">
+                        <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
+                          Maturity Entitlement
+                        </span>
+                        <span className="text-base font-bold font-mono text-white">
+                          ${inspectingPosition.expectedReturn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Audit Formula Box */}
+                    <div className="p-3.5 bg-zinc-50 border border-dashed border-black/15 font-mono text-[9px] text-zinc-600 space-y-1">
+                      <div className="font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
+                        <Percent className="w-3 h-3 text-black" />
+                        <span>Interest Calculation Method:</span>
+                      </div>
+                      <div className="text-zinc-700 bg-white p-2 border border-black/5">
+                        Yield = ${inspectingPosition.amount.toFixed(2)} × ({inspectingPosition.capturedApr}% / 100) × ({tenorDays} / 365) = <span className="font-bold text-emerald-700">${inspectingPosition.expectedYield.toFixed(2)}</span>
+                      </div>
+                      <p className="text-[8px] text-zinc-500 italic mt-1">
+                        * Accounting disclosure: Projected yield is unearned until the debtor executes on-chain settlement at invoice maturity.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-6 mt-6 border-t border-black/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const auditSummary = `CreditBridge Position Audit:
+Position ID: ${inspectingPosition.id}
+Invoice ID: ${inspectingPosition.invoiceId}
+Investor: ${inspectingPosition.investorWallet}
+Principal: $${inspectingPosition.amount.toFixed(2)}
+APR: ${inspectingPosition.capturedApr}%
+Projected Yield: $${inspectingPosition.expectedYield.toFixed(2)}
+Maturity Entitlement: $${inspectingPosition.expectedReturn.toFixed(2)}
+Status: ${inspectingPosition.status}`;
+                    navigator.clipboard.writeText(auditSummary);
+                    showToast("Position audit certificate copied to clipboard", "success");
+                  }}
+                  className="px-4 py-2 border border-black/20 hover:border-black text-black font-mono text-[10px] uppercase tracking-wider font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy Certificate</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectingPosition(null)}
+                  className="px-6 py-2 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                >
+                  Close Audit
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Investment Ledger Export Confirmation Modal */}
+        {isExportInvestmentsConfirmOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsExportInvestmentsConfirmOpen(false)}
+              className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.98, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.98, opacity: 0, y: 10 }}
+              className="bg-white border border-black/20 rounded-none w-full max-w-md p-6 sm:p-8 shadow-xl relative z-10 text-left"
+            >
+              <div className="flex justify-between items-start border-b border-black/5 pb-4 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-black text-white">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-display font-bold italic text-black">
+                      Export Investment Ledger
+                    </h4>
+                    <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                      Relational positions CSV archive
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsExportInvestmentsConfirmOpen(false)}
+                  className="p-1 hover:bg-black/5 text-zinc-400 hover:text-black transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              
+              <div className="space-y-4 py-2">
+                <p className="text-xs text-zinc-600 font-sans leading-relaxed">
+                  Export all currently filtered investment positions, including principal allocations, locked APR terms, unearned yields, and settlement statuses.
+                </p>
+                
+                <div className="p-4 bg-[#f5f3f0] border border-black/10 font-mono text-[10px] space-y-2 text-zinc-800">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400 uppercase">Positions Count:</span>
+                    <span className="font-bold text-black">{filteredInvestments.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400 uppercase">Total Capital:</span>
+                    <span className="font-bold text-black">${filteredInvestments.reduce((sum, inv) => sum + inv.amount, 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400 uppercase">Projected Yields:</span>
+                    <span className="font-bold text-emerald-700">+${filteredInvestments.reduce((sum, inv) => sum + inv.expectedYield, 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400 uppercase">Export Standard:</span>
+                    <span className="font-bold text-black">RFC 4180 CSV UTF-8</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-4 border-t border-black/5">
+                <button 
+                  type="button"
+                  onClick={() => setIsExportInvestmentsConfirmOpen(false)}
+                  className="px-5 py-2.5 bg-transparent border border-black/20 hover:border-black text-black font-mono text-[10px] uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    handleDownloadInvestmentsCSV();
+                    setIsExportInvestmentsConfirmOpen(false);
                   }}
                   className="px-6 py-2.5 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
                 >

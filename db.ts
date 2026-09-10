@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
-import { Invoice, Activity, AuditTrailEntry } from './src/types';
-import { INITIAL_INVOICES, INITIAL_ACTIVITIES, INITIAL_AUDIT_TRAIL } from './src/data';
+import { Invoice, Activity, AuditTrailEntry, Investment } from './src/types';
+import { INITIAL_INVOICES, INITIAL_ACTIVITIES, INITIAL_AUDIT_TRAIL, INITIAL_INVESTMENTS } from './src/data';
 import { STELLAR_DEMO_KEYS } from './src/utils/stellar';
 
 import DatabaseConstructor from 'better-sqlite3';
@@ -25,11 +25,13 @@ let jsonData: {
   invoices: Invoice[];
   activities: Activity[];
   audit_trail: AuditTrailEntry[];
+  investments: Investment[];
 } = {
   users: {},
   invoices: [],
   activities: [],
-  audit_trail: []
+  audit_trail: [],
+  investments: []
 };
 
 // Loader and saver for JSON fallback
@@ -37,6 +39,10 @@ function loadJson() {
   if (fs.existsSync(jsonPath)) {
     try {
       jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+      if (!jsonData.investments) {
+        jsonData.investments = [...INITIAL_INVESTMENTS];
+        saveJson();
+      }
     } catch (e) {
       console.error("Error reading fallback JSON database, re-seeding", e);
       seedFallbackJson();
@@ -64,7 +70,8 @@ function seedFallbackJson() {
     },
     invoices: INITIAL_INVOICES,
     activities: INITIAL_ACTIVITIES,
-    audit_trail: INITIAL_AUDIT_TRAIL
+    audit_trail: INITIAL_AUDIT_TRAIL,
+    investments: INITIAL_INVESTMENTS
   };
   saveJson();
 }
@@ -103,6 +110,23 @@ if (isSqlite && sqlDb) {
         risk TEXT NOT NULL,
         creatorWallet TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS investments (
+        id TEXT PRIMARY KEY,
+        invoiceId TEXT NOT NULL,
+        investorWallet TEXT NOT NULL,
+        amount REAL NOT NULL,
+        capturedApr REAL NOT NULL,
+        expectedYield REAL NOT NULL,
+        expectedReturn REAL NOT NULL,
+        timestamp TEXT NOT NULL,
+        maturityDate TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Active',
+        FOREIGN KEY (invoiceId) REFERENCES invoices(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_investments_investor ON investments(investorWallet);
+      CREATE INDEX IF NOT EXISTS idx_investments_invoice ON investments(invoiceId);
 
       CREATE TABLE IF NOT EXISTS activities (
         id TEXT PRIMARY KEY,
@@ -238,6 +262,34 @@ if (isSqlite && sqlDb) {
         console.warn("Database address migration notice:", migErr);
       }
     }
+
+    // Ensure investments table is seeded if empty
+    try {
+      const investmentCount = sqlDb.prepare("SELECT COUNT(*) as count FROM investments").get().count;
+      if (investmentCount === 0) {
+        console.log("Seeding SQLite database with initial investment positions...");
+        const insertInvestment = sqlDb.prepare(`
+          INSERT INTO investments (id, invoiceId, investorWallet, amount, capturedApr, expectedYield, expectedReturn, timestamp, maturityDate, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const inv of INITIAL_INVESTMENTS) {
+          insertInvestment.run(
+            inv.id,
+            inv.invoiceId,
+            inv.investorWallet,
+            inv.amount,
+            inv.capturedApr,
+            inv.expectedYield,
+            inv.expectedReturn,
+            inv.timestamp,
+            inv.maturityDate,
+            inv.status
+          );
+        }
+      }
+    } catch (invErr) {
+      console.warn("Investment table initialization check notice:", invErr);
+    }
   } catch (err) {
     console.error("Failed to initialize SQLite database, switching to JSON fallback.", err);
     isSqlite = false;
@@ -314,10 +366,15 @@ export function investInvoice(id: string, progress: number, status: string) {
 export function repayInvoice(id: string) {
   if (isSqlite) {
     try {
-      const stmt = sqlDb.prepare(`
-        UPDATE invoices SET status = 'Paid', fundingProgress = 100 WHERE id = ?
-      `);
-      stmt.run(id);
+      const tx = sqlDb.transaction(() => {
+        sqlDb.prepare(`
+          UPDATE invoices SET status = 'Paid', fundingProgress = 100 WHERE id = ?
+        `).run(id);
+        sqlDb.prepare(`
+          UPDATE investments SET status = 'Settled' WHERE invoiceId = ? AND status = 'Active'
+        `).run(id);
+      });
+      tx();
     } catch (err) {
       console.error("SQL repayInvoice error", err);
     }
@@ -326,8 +383,142 @@ export function repayInvoice(id: string) {
     if (inv) {
       inv.status = 'Paid';
       inv.fundingProgress = 100;
-      saveJson();
     }
+    if (jsonData.investments) {
+      jsonData.investments.forEach(pos => {
+        if (pos.invoiceId === id && pos.status === 'Active') {
+          pos.status = 'Settled';
+        }
+      });
+    }
+    saveJson();
+  }
+}
+
+// Investment Ledger APIs
+export function getInvestments(): Investment[] {
+  if (isSqlite) {
+    try {
+      return sqlDb.prepare("SELECT * FROM investments ORDER BY timestamp DESC").all();
+    } catch (err) {
+      console.error("SQL getInvestments error, using fallback", err);
+      return [];
+    }
+  } else {
+    return jsonData.investments || [];
+  }
+}
+
+export function getInvestmentsByInvestor(investorWallet: string): Investment[] {
+  if (isSqlite) {
+    try {
+      return sqlDb.prepare("SELECT * FROM investments WHERE investorWallet = ? ORDER BY timestamp DESC").all(investorWallet);
+    } catch (err) {
+      console.error("SQL getInvestmentsByInvestor error", err);
+      return [];
+    }
+  } else {
+    return (jsonData.investments || []).filter(i => i.investorWallet === investorWallet);
+  }
+}
+
+export function getInvestmentsByInvoice(invoiceId: string): Investment[] {
+  if (isSqlite) {
+    try {
+      return sqlDb.prepare("SELECT * FROM investments WHERE invoiceId = ? ORDER BY timestamp DESC").all(invoiceId);
+    } catch (err) {
+      console.error("SQL getInvestmentsByInvoice error", err);
+      return [];
+    }
+  } else {
+    return (jsonData.investments || []).filter(i => i.invoiceId === invoiceId);
+  }
+}
+
+export function getInvestmentById(id: string): Investment | undefined {
+  if (isSqlite) {
+    try {
+      return sqlDb.prepare("SELECT * FROM investments WHERE id = ?").get(id);
+    } catch (err) {
+      console.error("SQL getInvestmentById error", err);
+      return undefined;
+    }
+  } else {
+    return (jsonData.investments || []).find(i => i.id === id);
+  }
+}
+
+export function recordInvestment(
+  investment: Investment,
+  newProgress: number,
+  newStatus: string,
+  activity: Activity,
+  auditEntry: AuditTrailEntry
+): boolean {
+  if (isSqlite) {
+    try {
+      const tx = sqlDb.transaction(() => {
+        // 1. Insert individual investment record into ledger
+        sqlDb.prepare(`
+          INSERT INTO investments (id, invoiceId, investorWallet, amount, capturedApr, expectedYield, expectedReturn, timestamp, maturityDate, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          investment.id,
+          investment.invoiceId,
+          investment.investorWallet,
+          investment.amount,
+          investment.capturedApr,
+          investment.expectedYield,
+          investment.expectedReturn,
+          investment.timestamp,
+          investment.maturityDate,
+          investment.status
+        );
+
+        // 2. Update aggregate invoice funding atomically
+        sqlDb.prepare(`
+          UPDATE invoices SET fundingProgress = ?, status = ? WHERE id = ?
+        `).run(newProgress, newStatus, investment.invoiceId);
+
+        // 3. Record platform activity
+        sqlDb.prepare(`
+          INSERT INTO activities (id, title, timestamp, amount, type)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(activity.id, activity.title, activity.timestamp, activity.amount || null, activity.type);
+
+        // 4. Record audit trail entry
+        sqlDb.prepare(`
+          INSERT INTO audit_trail (id, timestamp, eventId, eventName, actionType, details, txHash, operatorWallet)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          auditEntry.id,
+          auditEntry.timestamp,
+          auditEntry.eventId,
+          auditEntry.eventName,
+          auditEntry.actionType,
+          auditEntry.details,
+          auditEntry.txHash || null,
+          auditEntry.operatorWallet
+        );
+      });
+      tx();
+      return true;
+    } catch (err) {
+      console.error("SQL recordInvestment transaction error", err);
+      throw err;
+    }
+  } else {
+    if (!jsonData.investments) jsonData.investments = [];
+    jsonData.investments.unshift(investment);
+    const inv = jsonData.invoices.find(i => i.id === investment.invoiceId);
+    if (inv) {
+      inv.fundingProgress = newProgress;
+      inv.status = newStatus as any;
+    }
+    jsonData.activities.unshift(activity);
+    jsonData.audit_trail.unshift(auditEntry);
+    saveJson();
+    return true;
   }
 }
 

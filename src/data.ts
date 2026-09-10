@@ -1,4 +1,4 @@
-import { Invoice, Activity, AuditTrailEntry } from './types';
+import { Invoice, Activity, AuditTrailEntry, Investment } from './types';
 import { STELLAR_DEMO_KEYS } from './utils/stellar';
 
 export const INITIAL_INVOICES: Invoice[] = [
@@ -151,6 +151,117 @@ export const INITIAL_AUDIT_TRAIL: AuditTrailEntry[] = [
     details: "Commercial receivable worth $128,500 tokenized on the Stellar blockchain. Created asset representation.",
     txHash: "acdf980e123498be74d0a1b9201ef54210cfde38127efab01923cefa9d78892d",
     operatorWallet: STELLAR_DEMO_KEYS.MAIN_USER
+  }
+];
+
+export const INITIAL_INVESTMENTS: Investment[] = [
+  {
+    id: 'inv-pos-1',
+    invoiceId: 'CB-9021',
+    investorWallet: STELLAR_DEMO_KEYS.MAIN_USER,
+    amount: 15000,
+    capturedApr: 12.5,
+    expectedYield: 61.64,
+    expectedReturn: 15061.64,
+    timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+    maturityDate: 'Nov 12, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-2',
+    invoiceId: 'CB-9021',
+    investorWallet: STELLAR_DEMO_KEYS.INVESTOR,
+    amount: 20100,
+    capturedApr: 12.5,
+    expectedYield: 82.60,
+    expectedReturn: 20182.60,
+    timestamp: new Date(Date.now() - 3600000 * 8).toISOString(),
+    maturityDate: 'Nov 12, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-3',
+    invoiceId: 'CB-8890',
+    investorWallet: STELLAR_DEMO_KEYS.MAIN_USER,
+    amount: 25000,
+    capturedApr: 13.5,
+    expectedYield: 277.40,
+    expectedReturn: 25277.40,
+    timestamp: new Date(Date.now() - 3600000 * 24 * 30).toISOString(),
+    maturityDate: 'Oct 26, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-4',
+    invoiceId: 'CB-8890',
+    investorWallet: STELLAR_DEMO_KEYS.INVESTOR,
+    amount: 17000,
+    capturedApr: 13.5,
+    expectedYield: 188.63,
+    expectedReturn: 17188.63,
+    timestamp: new Date(Date.now() - 3600000 * 24 * 28).toISOString(),
+    maturityDate: 'Oct 26, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-5',
+    invoiceId: 'CB-7124',
+    investorWallet: STELLAR_DEMO_KEYS.MAIN_USER,
+    amount: 10000,
+    capturedApr: 14.2,
+    expectedYield: 11.67,
+    expectedReturn: 10011.67,
+    timestamp: new Date(Date.now() - 3600000 * 20).toISOString(),
+    maturityDate: 'Nov 15, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-6',
+    invoiceId: 'CB-7124',
+    investorWallet: STELLAR_DEMO_KEYS.INVESTOR,
+    amount: 9504,
+    capturedApr: 14.2,
+    expectedYield: 11.09,
+    expectedReturn: 9515.09,
+    timestamp: new Date(Date.now() - 3600000 * 25).toISOString(),
+    maturityDate: 'Nov 15, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-7',
+    invoiceId: 'CB-5541',
+    investorWallet: STELLAR_DEMO_KEYS.MAIN_USER,
+    amount: 9000,
+    capturedApr: 13.0,
+    expectedYield: 57.70,
+    expectedReturn: 9057.70,
+    timestamp: new Date(Date.now() - 3600000 * 12).toISOString(),
+    maturityDate: 'Nov 18, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-8',
+    invoiceId: 'CB-8892',
+    investorWallet: STELLAR_DEMO_KEYS.INVESTOR,
+    amount: 53970,
+    capturedApr: 11.0,
+    expectedYield: 390.37,
+    expectedReturn: 54360.37,
+    timestamp: new Date(Date.now() - 3600000 * 15).toISOString(),
+    maturityDate: 'Nov 28, 2023',
+    status: 'Active'
+  },
+  {
+    id: 'inv-pos-9',
+    invoiceId: 'CB-6512',
+    investorWallet: STELLAR_DEMO_KEYS.INVESTOR,
+    amount: 10860,
+    capturedApr: 10.5,
+    expectedYield: 140.67,
+    expectedReturn: 11000.67,
+    timestamp: new Date(Date.now() - 3600000 * 6).toISOString(),
+    maturityDate: 'Dec 15, 2023',
+    status: 'Active'
   }
 ];
 

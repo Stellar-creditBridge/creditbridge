@@ -13,19 +13,30 @@ import {
   CreditCard,
   TrendingUp,
   Check,
-  Search
+  Search,
+  Users,
+  Info,
+  Copy
 } from 'lucide-react';
-import { Invoice, WalletState } from '../types';
+import { Invoice, WalletState, Investment } from '../types';
 import { useToast } from './Toast';
+import { 
+  calculateExpectedYield, 
+  calculateExpectedReturn, 
+  calculateOwnershipPercentage, 
+  roundCurrency 
+} from '../utils/investmentAccounting';
+import { STELLAR_DEMO_KEYS, formatStellarAddress } from '../utils/stellar';
 
 interface MarketplaceProps {
   invoices: Invoice[];
+  investments?: Investment[];
   onInvest: (invoiceId: string, investAmount: number) => void;
   wallet: WalletState;
   setView: (view: 'landing' | 'dashboard' | 'marketplace' | 'analytics' | 'admin' | 'connect') => void;
 }
 
-export default function Marketplace({ invoices, onInvest, wallet, setView }: MarketplaceProps) {
+export default function Marketplace({ invoices, investments = [], onInvest, wallet, setView }: MarketplaceProps) {
   const { showToast } = useToast();
   // Filter States
   const [selectedIndustry, setSelectedIndustry] = useState('All Industries');
@@ -44,6 +55,9 @@ export default function Marketplace({ invoices, onInvest, wallet, setView }: Mar
   const [isProcessing, setIsProcessing] = useState(false);
   const [investmentSuccess, setInvestmentSuccess] = useState(false);
   const [kycCompleted, setKycCompleted] = useState(false);
+
+  // Invoice Backers Modal state
+  const [viewingBackersInvoice, setViewingBackersInvoice] = useState<Invoice | null>(null);
 
   // Gemini Risk Scoring State
   const [activeRiskScoringInvoice, setActiveRiskScoringInvoice] = useState<Invoice | null>(null);
@@ -431,40 +445,47 @@ export default function Marketplace({ invoices, onInvest, wallet, setView }: Mar
             </div>
 
             {/* CTA action */}
-            {inv.fundingProgress >= 100 ? (
-              <div className="mt-auto flex flex-col gap-2">
-                <button 
-                  disabled
-                  className="w-full py-3 bg-zinc-100 text-zinc-400 font-mono text-[10px] uppercase tracking-widest cursor-default flex items-center justify-center gap-1.5 border border-black/5"
-                >
-                  <Check className="w-3.5 h-3.5 stroke-[3.5]" />
-                  <span>Fully Funded</span>
-                </button>
-                <button 
-                  onClick={() => handleOpenRiskScoring(inv)}
-                  className="w-full py-2 bg-transparent hover:bg-black/5 text-black border border-black/20 hover:border-black font-mono text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5"
-                >
-                  <TrendingUp className="w-3 h-3" />
-                  <span>AI Risk Scoring</span>
-                </button>
-              </div>
-            ) : (
-              <div className="mt-auto flex flex-col gap-2">
-                <button 
-                  onClick={() => handleOpenInvest(inv)}
-                  className="w-full py-3 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest transition-all cursor-pointer"
-                >
-                  Invest Now
-                </button>
-                <button 
-                  onClick={() => handleOpenRiskScoring(inv)}
-                  className="w-full py-2 bg-transparent hover:bg-black/5 text-black border border-black/20 hover:border-black font-mono text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5"
-                >
-                  <TrendingUp className="w-3 h-3" />
-                  <span>AI Risk Scoring</span>
-                </button>
-              </div>
-            )}
+            {(() => {
+              const invoiceBackers = investments.filter(invst => invst.invoiceId === inv.id);
+              return (
+                <div className="mt-auto flex flex-col gap-2">
+                  {inv.fundingProgress >= 100 ? (
+                    <button 
+                      disabled
+                      className="w-full py-3 bg-zinc-100 text-zinc-400 font-mono text-[10px] uppercase tracking-widest cursor-default flex items-center justify-center gap-1.5 border border-black/5"
+                    >
+                      <Check className="w-3.5 h-3.5 stroke-[3.5]" />
+                      <span>Fully Funded</span>
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => handleOpenInvest(inv)}
+                      className="w-full py-3 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest transition-all cursor-pointer font-bold"
+                    >
+                      Invest Now
+                    </button>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setViewingBackersInvoice(inv)}
+                      className="py-2 bg-transparent hover:bg-black/5 text-zinc-700 border border-black/15 hover:border-black font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1"
+                      title="View all investor positions in this receivable"
+                    >
+                      <Users className="w-3 h-3 text-zinc-500" />
+                      <span>Backers ({invoiceBackers.length})</span>
+                    </button>
+                    <button 
+                      onClick={() => handleOpenRiskScoring(inv)}
+                      className="py-2 bg-transparent hover:bg-black/5 text-black border border-black/20 hover:border-black font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1"
+                    >
+                      <TrendingUp className="w-3 h-3" />
+                      <span>AI Risk</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ))}
 
@@ -547,62 +568,116 @@ export default function Marketplace({ invoices, onInvest, wallet, setView }: Mar
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleConfirmInvestment} className="space-y-4">
-                  <div className="p-4 bg-white border border-black/10 rounded-none flex flex-col gap-2.5">
-                    <div className="flex justify-between text-[11px] font-mono">
-                      <span className="text-zinc-400 uppercase tracking-wider">Target Partner:</span>
-                      <span className="text-black font-bold">{investingInvoice.partnerName}</span>
-                    </div>
-                    <div className="flex justify-between text-[11px] font-mono">
-                      <span className="text-zinc-400 uppercase tracking-wider">Yield Rate:</span>
-                      <span className="text-black font-bold">{investingInvoice.annualReturn}% APR</span>
-                    </div>
-                    <div className="flex justify-between text-[11px] font-mono border-t border-black/5 pt-2.5">
-                      <span className="text-zinc-400 uppercase tracking-wider">Invoice Balance:</span>
-                      <span className="text-black font-bold">
-                        ${(investingInvoice.amount * (1 - investingInvoice.fundingProgress / 100)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                      </span>
-                    </div>
-                  </div>
+                (() => {
+                  const parsedAmt = parseFloat(investAmount) || 0;
+                  const projectedYield = investingInvoice 
+                    ? calculateExpectedYield(parsedAmt, investingInvoice.annualReturn, investingInvoice.daysRemaining) 
+                    : 0;
+                  const projectedTotalReturn = investingInvoice 
+                    ? calculateExpectedReturn(parsedAmt, projectedYield) 
+                    : 0;
+                  const ownershipShare = (investingInvoice && investingInvoice.amount > 0)
+                    ? calculateOwnershipPercentage(parsedAmt, investingInvoice.amount)
+                    : 0;
 
-                  {/* Input field */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Your Allocation Amount ($)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-mono font-bold text-xs">$</span>
-                      <input 
-                        type="number" 
-                        required
-                        min="100"
-                        max={(investingInvoice.amount * (1 - investingInvoice.fundingProgress / 100)).toString()}
-                        value={investAmount}
-                        onChange={(e) => setInvestAmount(e.target.value)}
-                        className="w-full pl-6 pr-4 py-2 border border-black/10 rounded-none text-xs font-mono font-bold focus:border-black outline-none bg-white"
-                      />
-                    </div>
-                    <p className="text-[9px] font-mono text-zinc-400 mt-1 leading-relaxed">
-                      Funding completes in real-time. Minimum allocation: $100.
-                    </p>
-                  </div>
+                  return (
+                    <form onSubmit={handleConfirmInvestment} className="space-y-4">
+                      <div className="p-4 bg-white border border-black/10 rounded-none flex flex-col gap-2.5">
+                        <div className="flex justify-between text-[11px] font-mono">
+                          <span className="text-zinc-400 uppercase tracking-wider">Target Partner:</span>
+                          <span className="text-black font-bold">{investingInvoice.partnerName}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] font-mono">
+                          <span className="text-zinc-400 uppercase tracking-wider">Locked Yield Rate:</span>
+                          <span className="text-black font-bold">{investingInvoice.annualReturn}% APR</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] font-mono border-t border-black/5 pt-2.5">
+                          <span className="text-zinc-400 uppercase tracking-wider">Remaining Balance:</span>
+                          <span className="text-black font-bold">
+                            ${(investingInvoice.amount * (1 - investingInvoice.fundingProgress / 100)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
+                      </div>
 
-                  {/* Action controls */}
-                  <div className="flex justify-end gap-3 pt-4 border-t border-black/5">
-                    <button 
-                      type="button"
-                      onClick={() => setInvestingInvoice(null)}
-                      className="px-4 py-2 bg-transparent border border-black/20 hover:border-black text-black font-mono text-[10px] uppercase tracking-wider transition-all cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit"
-                      className="px-5 py-2 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest transition-all cursor-pointer flex items-center gap-1.5"
-                    >
-                      <CreditCard className="w-3.5 h-3.5" />
-                      <span>Confirm Invest</span>
-                    </button>
-                  </div>
-                </form>
+                      {/* Input field */}
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Your Allocation Principal ($)</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-mono font-bold text-xs">$</span>
+                          <input 
+                            type="number" 
+                            required
+                            min="100"
+                            max={(investingInvoice.amount * (1 - investingInvoice.fundingProgress / 100)).toString()}
+                            value={investAmount}
+                            onChange={(e) => setInvestAmount(e.target.value)}
+                            className="w-full pl-6 pr-4 py-2 border border-black/10 rounded-none text-xs font-mono font-bold focus:border-black outline-none bg-white"
+                          />
+                        </div>
+                        <p className="text-[9px] font-mono text-zinc-400 mt-0.5 leading-relaxed">
+                          Minimum allocation: $100. Real-time relational position recording.
+                        </p>
+                      </div>
+
+                      {/* Real-time Accounting Breakdown */}
+                      {parsedAmt > 0 && (
+                        <div className="p-3.5 bg-zinc-50 border border-black/10 space-y-2 text-[10px] font-mono">
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-500 uppercase tracking-wider">Investor Account:</span>
+                            <span className="font-bold text-black" title={wallet.address || STELLAR_DEMO_KEYS.INVESTOR}>
+                              {formatStellarAddress(wallet.address || STELLAR_DEMO_KEYS.INVESTOR)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500 uppercase tracking-wider">Invoice Ownership:</span>
+                            <span className="font-bold text-black">{ownershipShare.toFixed(2)}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500 uppercase tracking-wider">Term to Maturity:</span>
+                            <span className="font-bold text-black">{investingInvoice.daysRemaining} Days</span>
+                          </div>
+                          <div className="flex justify-between text-emerald-700 font-bold border-t border-black/5 pt-1.5">
+                            <span className="uppercase tracking-wider flex items-center gap-1.5">
+                              Projected Yield:
+                              <span className="text-[8px] px-1 py-0.2 bg-amber-100 text-amber-800 uppercase font-mono font-bold">Unearned</span>
+                            </span>
+                            <span>+${projectedYield.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between font-bold text-black border-t border-black/5 pt-1.5 text-xs">
+                            <span className="uppercase tracking-wider">Total Entitled Repayment:</span>
+                            <span>${projectedTotalReturn.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Accounting Standard Notice */}
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 flex items-start gap-2 text-left">
+                        <Info className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                        <p className="text-[9px] font-mono text-amber-900 leading-tight">
+                          Accounting Standard: Projected yield is unearned until debtor executes settlement on maturity date. Unearned interest does not reflect realized income.
+                        </p>
+                      </div>
+
+                      {/* Action controls */}
+                      <div className="flex justify-end gap-3 pt-3 border-t border-black/5">
+                        <button 
+                          type="button"
+                          onClick={() => setInvestingInvoice(null)}
+                          className="px-4 py-2 bg-transparent border border-black/20 hover:border-black text-black font-mono text-[10px] uppercase tracking-wider transition-all cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          type="submit"
+                          className="px-5 py-2 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest transition-all cursor-pointer flex items-center gap-1.5 font-bold"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>Confirm Allocation</span>
+                        </button>
+                      </div>
+                    </form>
+                  );
+                })()
               )}
             </motion.div>
           </div>
@@ -801,6 +876,172 @@ export default function Marketplace({ invoices, onInvest, wallet, setView }: Mar
                   </div>
                 </div>
               ) : null}
+            </motion.div>
+          </div>
+        )}
+
+        {/* Backers Modal - Relational Ledger Positions */}
+        {viewingBackersInvoice && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setViewingBackersInvoice(null)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-xs"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-3xl bg-white border border-black/20 p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-start mb-6 border-b border-black/10 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-black" />
+                    <h3 className="font-display font-bold italic text-xl text-on-background">
+                      Relational Investment Positions
+                    </h3>
+                  </div>
+                  <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mt-1">
+                    Invoice #{viewingBackersInvoice.id} • {viewingBackersInvoice.partnerName} ({viewingBackersInvoice.industry})
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setViewingBackersInvoice(null)}
+                  className="p-1 hover:bg-black/5 text-zinc-400 hover:text-black transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Positions Table */}
+              {(() => {
+                const invoicePositions = investments.filter(invst => invst.invoiceId === viewingBackersInvoice.id);
+                const totalPositionPrincipal = invoicePositions.reduce((acc, curr) => acc + curr.amount, 0);
+                const totalUnearnedYield = invoicePositions.reduce((acc, curr) => acc + curr.expectedYield, 0);
+
+                return (
+                  <div className="space-y-6">
+                    {/* Summary Bar */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 bg-zinc-50 border border-black/10 font-mono text-left">
+                      <div>
+                        <span className="text-[9px] text-zinc-400 uppercase tracking-widest block">Total Backers</span>
+                        <span className="text-base font-bold text-black">{invoicePositions.length}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-zinc-400 uppercase tracking-widest block">Allocated Capital</span>
+                        <span className="text-base font-bold text-black">${totalPositionPrincipal.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-zinc-400 uppercase tracking-widest block">Projected Yield</span>
+                        <span className="text-base font-bold text-emerald-700">+${totalUnearnedYield.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-zinc-400 uppercase tracking-widest block">Invoice Target</span>
+                        <span className="text-base font-bold text-black">${viewingBackersInvoice.amount.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {invoicePositions.length === 0 ? (
+                      <div className="py-12 text-center border border-dashed border-black/10 p-6">
+                        <Users className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                        <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">No investor allocations recorded yet.</p>
+                        <p className="text-[10px] font-mono text-zinc-400 mt-1">Be the first institutional investor to allocate capital to this receivable.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto border border-black/10">
+                        <table className="w-full text-left font-mono text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-zinc-100 border-b border-black/10 text-[9px] text-zinc-500 uppercase tracking-wider">
+                              <th className="p-3">Position ID</th>
+                              <th className="p-3">Investor Public Key</th>
+                              <th className="p-3 text-right">Allocation ($)</th>
+                              <th className="p-3 text-right">Ownership</th>
+                              <th className="p-3 text-right">Locked APR</th>
+                              <th className="p-3 text-right">Projected Yield</th>
+                              <th className="p-3 text-center">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-black/5">
+                            {invoicePositions.map((pos) => {
+                              const isCurrentWallet = wallet.address && (pos.investorWallet === wallet.address);
+                              return (
+                                <tr key={pos.id} className={`hover:bg-zinc-50/80 transition-colors ${isCurrentWallet ? 'bg-amber-50/40' : ''}`}>
+                                  <td className="p-3 font-bold text-black text-[11px] whitespace-nowrap">
+                                    {pos.id}
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[11px] text-zinc-700" title={pos.investorWallet}>
+                                        {formatStellarAddress(pos.investorWallet)}
+                                      </span>
+                                      {isCurrentWallet && (
+                                        <span className="px-1 py-0.2 bg-black text-white text-[7px] uppercase font-bold">You</span>
+                                      )}
+                                      <button 
+                                        onClick={() => {
+                                          navigator.clipboard?.writeText(pos.investorWallet);
+                                          showToast("Stellar address copied to clipboard", "success");
+                                        }}
+                                        className="text-zinc-400 hover:text-black p-0.5"
+                                        title="Copy full Stellar address"
+                                      >
+                                        <Copy className="w-2.5 h-2.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                  <td className="p-3 text-right font-bold text-black whitespace-nowrap">
+                                    ${pos.amount.toLocaleString()}
+                                  </td>
+                                  <td className="p-3 text-right text-zinc-600 whitespace-nowrap">
+                                    {calculateOwnershipPercentage(pos.amount, viewingBackersInvoice.amount).toFixed(2)}%
+                                  </td>
+                                  <td className="p-3 text-right font-bold text-black whitespace-nowrap">
+                                    {pos.capturedApr.toFixed(1)}%
+                                  </td>
+                                  <td className="p-3 text-right text-emerald-700 font-bold whitespace-nowrap">
+                                    +${pos.expectedYield.toFixed(2)}
+                                  </td>
+                                  <td className="p-3 text-center whitespace-nowrap">
+                                    <span className={`px-2 py-0.5 text-[8px] uppercase font-bold ${
+                                      pos.status === 'Settled' 
+                                        ? 'bg-emerald-100 text-emerald-800' 
+                                        : pos.status === 'Defaulted'
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : 'bg-blue-100 text-blue-800'
+                                    }`}>
+                                      {pos.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    <div className="p-3 bg-amber-50 border border-amber-200 text-[9px] font-mono text-amber-900 leading-relaxed flex items-start gap-2">
+                      <Info className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Accounting Disclosure:</span> Individual positions represent locked principal and prospective yield entitlements. Yields are unearned until debtor repayment settlement is finalized on the ledger.
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <button 
+                        onClick={() => setViewingBackersInvoice(null)}
+                        className="px-6 py-2.5 bg-black hover:bg-zinc-800 text-white font-mono text-[10px] uppercase tracking-widest cursor-pointer font-bold"
+                      >
+                        Close Positions
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </motion.div>
           </div>
         )}
