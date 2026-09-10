@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { WalletState } from '../types';
 import { useToast } from './Toast';
+import { STELLAR_DEMO_KEYS } from '../utils/stellar';
 
 interface WalletAuthProps {
   wallet: WalletState;
@@ -40,7 +41,7 @@ export default function WalletAuth({ wallet, setWallet, setView }: WalletAuthPro
     // Simulate Stellar network authentication handshake
     setTimeout(async () => {
       try {
-        const mockAddress = '0x4b789123cba7f9e8a512400f912431682494e2a';
+        const mockAddress = STELLAR_DEMO_KEYS.MAIN_USER;
         
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -59,9 +60,10 @@ export default function WalletAuth({ wallet, setWallet, setView }: WalletAuthPro
           address: mockAddress,
           provider: selectedProvider,
           connected: true,
+          role: (data.role as 'investor' | 'admin') || 'investor'
         });
 
-        showToast(`Wallet connected via \${selectedProvider.toUpperCase()} successfully!`, 'success');
+        showToast(`Wallet connected via ${selectedProvider.toUpperCase()} successfully!`, 'success');
 
         // Quick delay before navigating to dashboard
         setTimeout(() => {

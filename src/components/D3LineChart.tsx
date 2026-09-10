@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Invoice } from '../types';
+import { STELLAR_DEMO_KEYS } from '../utils/stellar';
 
 interface D3LineChartProps {
   invoices: Invoice[];
   theme?: string;
+  walletAddress?: string;
 }
 
 interface DataPoint {
@@ -13,7 +15,7 @@ interface DataPoint {
   repaidVolume: number;   // volume in USD
 }
 
-export default function D3LineChart({ invoices, theme }: D3LineChartProps) {
+export default function D3LineChart({ invoices, theme, walletAddress }: D3LineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [metric, setMetric] = useState<'both' | 'yield' | 'repaid'>('both');
@@ -30,7 +32,8 @@ export default function D3LineChart({ invoices, theme }: D3LineChartProps) {
   ];
 
   // Dynamically scale/boost stats if user has active/fully funded high APR invoices
-  const userInvoices = invoices.filter(i => i.creatorWallet === '0x4b...4e2a');
+  const targetWallet = walletAddress || STELLAR_DEMO_KEYS.MAIN_USER;
+  const userInvoices = invoices.filter(i => i.creatorWallet === targetWallet);
   if (userInvoices.length > 0) {
     const avgYield = d3.mean(userInvoices, d => d.annualReturn) || 12.0;
     const totalVolume = d3.sum(userInvoices.filter(i => i.fundingProgress >= 100), d => d.amount) || 42000;

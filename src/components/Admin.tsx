@@ -1,6 +1,7 @@
 import React from 'react';
 import { Invoice, WalletState } from '../types';
 import { ShieldAlert, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { formatStellarAddress, isAdminStellarAddress } from '../utils/stellar';
 
 interface AdminProps {
   invoices: Invoice[];
@@ -16,14 +17,15 @@ const getRiskBadgeClass = (risk: string) => {
 
 export default function Admin({ invoices, wallet, onUpdateRisk }: AdminProps) {
   const pendingInvoices = invoices.filter(inv => inv.status === 'Pending' || inv.fundingProgress < 100);
+  const isAdmin = wallet.role === 'admin' || (Boolean(wallet.address) && isAdminStellarAddress(wallet.address));
 
-  if (!wallet.address || !wallet.address.startsWith('0xADMIN')) {
+  if (!wallet.address || !isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
         <ShieldAlert className="w-16 h-16 text-red-500 mb-4" />
         <h1 className="text-2xl font-bold text-zinc-900 mb-2">Access Denied</h1>
         <p className="text-zinc-500 max-w-md">
-          {'Your connected wallet (' + (wallet.address || 'None') + ') does not possess the necessary administrative clearance to access this protocol dashboard.'}
+          {'Your connected wallet (' + (wallet.address ? formatStellarAddress(wallet.address, 6, 6) : 'None') + ') does not possess the necessary administrative clearance to access this protocol dashboard.'}
         </p>
       </div>
     );

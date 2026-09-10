@@ -16,6 +16,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { WalletState } from '../types';
+import { useToast } from './Toast';
 
 interface LandingPageProps {
   wallet: WalletState;
@@ -23,6 +24,7 @@ interface LandingPageProps {
 }
 
 export default function LandingPage({ wallet, setView }: LandingPageProps) {
+  const { showToast } = useToast();
   // We can simulate an active mini sparkline animation
   const sparklineHeights = [40, 60, 50, 80, 70, 90, 85];
 
@@ -315,7 +317,7 @@ export default function LandingPage({ wallet, setView }: LandingPageProps) {
               Apply Now
             </button>
             <button 
-              onClick={() => alert("Connecting with an institutional advisor... We will reach out to your wallet verification email address.")}
+              onClick={() => showToast("Connecting with an institutional advisor... An advisor will reach out to your verification channel.", "info")}
               className="px-8 py-4 bg-transparent border border-white/20 text-white font-semibold text-[10px] uppercase tracking-[0.2em] font-mono transition-colors hover:border-white cursor-pointer"
             >
               Talk to an Advisor

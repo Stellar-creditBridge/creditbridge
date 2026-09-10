@@ -1,3 +1,5 @@
+export type StellarPublicKey = string;
+
 export interface Invoice {
   id: string;
   partnerName: string;
@@ -10,7 +12,7 @@ export interface Invoice {
   daysRemaining: number;
   status: 'Funded' | 'Pending' | 'Due Soon' | 'Paid';
   risk: 'Low Risk' | 'Moderate' | 'Stable';
-  creatorWallet: string;
+  creatorWallet: StellarPublicKey;
 }
 
 export interface Activity {
@@ -22,9 +24,10 @@ export interface Activity {
 }
 
 export interface WalletState {
-  address: string | null;
+  address: StellarPublicKey | null;
   provider: 'freighter' | 'albedo' | 'rabe' | null;
   connected: boolean;
+  role?: 'investor' | 'admin';
 }
 
 export interface AuditTrailEntry {
@@ -35,6 +38,6 @@ export interface AuditTrailEntry {
   actionType: 'Tokenization' | 'Risk Mutation' | 'Asset Funding' | 'Settlement';
   details: string;
   txHash?: string; // Simulated Stellar tx hash
-  operatorWallet: string; // Wallet that executed the action
+  operatorWallet: StellarPublicKey; // Wallet that executed the action
 }
 

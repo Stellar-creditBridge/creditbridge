@@ -1,4 +1,5 @@
 import { Invoice, Activity, AuditTrailEntry } from './types';
+import { STELLAR_DEMO_KEYS } from './utils/stellar';
 
 export const INITIAL_INVOICES: Invoice[] = [
   {
@@ -13,7 +14,7 @@ export const INITIAL_INVOICES: Invoice[] = [
     daysRemaining: 12,
     status: 'Funded',
     risk: 'Low Risk',
-    creatorWallet: '0x4b...4e2a'
+    creatorWallet: STELLAR_DEMO_KEYS.MAIN_USER
   },
   {
     id: 'CB-8892',
@@ -27,7 +28,7 @@ export const INITIAL_INVOICES: Invoice[] = [
     daysRemaining: 24,
     status: 'Pending',
     risk: 'Low Risk',
-    creatorWallet: '0x4b...4e2a'
+    creatorWallet: STELLAR_DEMO_KEYS.MAIN_USER
   },
   {
     id: 'CB-8890',
@@ -41,7 +42,7 @@ export const INITIAL_INVOICES: Invoice[] = [
     daysRemaining: 0,
     status: 'Due Soon',
     risk: 'Moderate',
-    creatorWallet: '0x4b...4e2a'
+    creatorWallet: STELLAR_DEMO_KEYS.MAIN_USER
   },
   {
     id: 'CB-7124',
@@ -55,7 +56,7 @@ export const INITIAL_INVOICES: Invoice[] = [
     daysRemaining: 3,
     status: 'Pending',
     risk: 'Moderate',
-    creatorWallet: '0x9a...3f1c'
+    creatorWallet: STELLAR_DEMO_KEYS.BORROWER_RETAIL
   },
   {
     id: 'CB-6512',
@@ -69,7 +70,7 @@ export const INITIAL_INVOICES: Invoice[] = [
     daysRemaining: 45,
     status: 'Pending',
     risk: 'Low Risk',
-    creatorWallet: '0x6c...11a2'
+    creatorWallet: STELLAR_DEMO_KEYS.BORROWER_LOGISTICS
   },
   {
     id: 'CB-5541',
@@ -83,7 +84,7 @@ export const INITIAL_INVOICES: Invoice[] = [
     daysRemaining: 18,
     status: 'Pending',
     risk: 'Stable',
-    creatorWallet: '0x5b...829a'
+    creatorWallet: STELLAR_DEMO_KEYS.BORROWER_TECH
   }
 ];
 
@@ -119,7 +120,7 @@ export const INITIAL_AUDIT_TRAIL: AuditTrailEntry[] = [
     actionType: "Asset Funding",
     details: "Allocated $35,100 (78% of target $45,000) under on-chain escrow pool.",
     txHash: "8dbf03b22c7a8293910c2f829a99ef83b27bcfb92c481923cd27fa4bfde19021",
-    operatorWallet: "GA5W32...RK6M"
+    operatorWallet: STELLAR_DEMO_KEYS.INVESTOR
   },
   {
     id: "trail-2",
@@ -129,7 +130,7 @@ export const INITIAL_AUDIT_TRAIL: AuditTrailEntry[] = [
     actionType: "Settlement",
     details: "Invoice fully settled. Stellar trustline closed and $42,000 USDC distributed to backers.",
     txHash: "cf89320e4b8aef9120c850fe8841da5093e8e2193b2aefc6109f2ba9e7388890",
-    operatorWallet: "GB3N27...LQ9A"
+    operatorWallet: STELLAR_DEMO_KEYS.BORROWER_LOGISTICS
   },
   {
     id: "trail-3",
@@ -139,7 +140,7 @@ export const INITIAL_AUDIT_TRAIL: AuditTrailEntry[] = [
     actionType: "Risk Mutation",
     details: "Institutional health check trigger: Risk profile adjusted from Stable to Moderate due to credit facility renewals.",
     txHash: "5f9e20a4b3d1789c629f104d88e0251bb4c00037a90b41da7e3137e90c87124f",
-    operatorWallet: "GD4K27...9X1C"
+    operatorWallet: STELLAR_DEMO_KEYS.ADMIN
   },
   {
     id: "trail-4",
@@ -149,7 +150,7 @@ export const INITIAL_AUDIT_TRAIL: AuditTrailEntry[] = [
     actionType: "Tokenization",
     details: "Commercial receivable worth $128,500 tokenized on the Stellar blockchain. Created asset representation.",
     txHash: "acdf980e123498be74d0a1b9201ef54210cfde38127efab01923cefa9d78892d",
-    operatorWallet: "GA5W32...RK6M"
+    operatorWallet: STELLAR_DEMO_KEYS.MAIN_USER
   }
 ];
 

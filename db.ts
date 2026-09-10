@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { Invoice, Activity, AuditTrailEntry } from './src/types';
 import { INITIAL_INVOICES, INITIAL_ACTIVITIES, INITIAL_AUDIT_TRAIL } from './src/data';
+import { STELLAR_DEMO_KEYS } from './src/utils/stellar';
 
 import DatabaseConstructor from 'better-sqlite3';
 
@@ -48,11 +49,17 @@ function loadJson() {
 function seedFallbackJson() {
   jsonData = {
     users: {
-      '0x4b789123cba7f9e8a512400f912431682494e2a': {
-        wallet_address: '0x4b789123cba7f9e8a512400f912431682494e2a',
+      [STELLAR_DEMO_KEYS.MAIN_USER]: {
+        wallet_address: STELLAR_DEMO_KEYS.MAIN_USER,
         theme: 'light',
         risk_alerts_enabled: 0,
         notification_email: 'anichrisa@gmail.com'
+      },
+      [STELLAR_DEMO_KEYS.ADMIN]: {
+        wallet_address: STELLAR_DEMO_KEYS.ADMIN,
+        theme: 'light',
+        risk_alerts_enabled: 1,
+        notification_email: 'admin@creditbridge.org'
       }
     },
     invoices: INITIAL_INVOICES,
@@ -125,8 +132,13 @@ if (isSqlite && sqlDb) {
       // Seed users
       sqlDb.prepare(`
         INSERT OR IGNORE INTO users (wallet_address, theme, risk_alerts_enabled, notification_email)
-        VALUES ('0x4b789123cba7f9e8a512400f912431682494e2a', 'light', 0, 'anichrisa@gmail.com')
-      `).run();
+        VALUES (?, 'light', 0, 'anichrisa@gmail.com')
+      `).run(STELLAR_DEMO_KEYS.MAIN_USER);
+
+      sqlDb.prepare(`
+        INSERT OR IGNORE INTO users (wallet_address, theme, risk_alerts_enabled, notification_email)
+        VALUES (?, 'light', 1, 'admin@creditbridge.org')
+      `).run(STELLAR_DEMO_KEYS.ADMIN);
 
       // Seed invoices
       const insertInvoice = sqlDb.prepare(`
@@ -184,6 +196,47 @@ if (isSqlite && sqlDb) {
       }
       
       console.log("SQLite database seeding complete.");
+    } else {
+      // Migrate legacy EVM addresses if present in existing database
+      try {
+        sqlDb.prepare(`
+          UPDATE users 
+          SET wallet_address = ? 
+          WHERE wallet_address LIKE '0x%'
+        `).run(STELLAR_DEMO_KEYS.MAIN_USER);
+
+        sqlDb.prepare(`
+          UPDATE invoices 
+          SET creatorWallet = ? 
+          WHERE creatorWallet = '0x4b...4e2a'
+        `).run(STELLAR_DEMO_KEYS.MAIN_USER);
+
+        sqlDb.prepare(`
+          UPDATE invoices 
+          SET creatorWallet = ? 
+          WHERE creatorWallet = '0x9a...3f1c'
+        `).run(STELLAR_DEMO_KEYS.BORROWER_RETAIL);
+
+        sqlDb.prepare(`
+          UPDATE invoices 
+          SET creatorWallet = ? 
+          WHERE creatorWallet = '0x6c...11a2'
+        `).run(STELLAR_DEMO_KEYS.BORROWER_LOGISTICS);
+
+        sqlDb.prepare(`
+          UPDATE invoices 
+          SET creatorWallet = ? 
+          WHERE creatorWallet = '0x5b...829a'
+        `).run(STELLAR_DEMO_KEYS.BORROWER_TECH);
+
+        // Ensure admin user exists in users table
+        sqlDb.prepare(`
+          INSERT OR IGNORE INTO users (wallet_address, theme, risk_alerts_enabled, notification_email)
+          VALUES (?, 'light', 1, 'admin@creditbridge.org')
+        `).run(STELLAR_DEMO_KEYS.ADMIN);
+      } catch (migErr) {
+        console.warn("Database address migration notice:", migErr);
+      }
     }
   } catch (err) {
     console.error("Failed to initialize SQLite database, switching to JSON fallback.", err);

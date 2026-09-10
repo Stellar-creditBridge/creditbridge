@@ -13,6 +13,19 @@ import { Server } from "socket.io";
 import cors from "cors";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
+import { StrKey } from "@stellar/stellar-sdk";
+import { STELLAR_DEMO_KEYS } from "./src/utils/stellar";
+
+// --- Stellar Public Key Zod Validator ---
+const stellarAddressSchema = z.string().refine((val) => {
+  try {
+    return StrKey.isValidEd25519PublicKey(val.trim());
+  } catch {
+    return false;
+  }
+}, {
+  message: "Invalid Stellar Ed25519 public key (must be a valid 56-character G... address)"
+});
 
 // --- Zod Schemas ---
 const riskScoringSchema = z.object({
@@ -36,18 +49,22 @@ const invoiceSchema = z.object({
   daysRemaining: z.number().int().nonnegative(),
   status: z.enum(['Funded', 'Pending', 'Due Soon', 'Paid']),
   risk: z.enum(['Low Risk', 'Moderate', 'Stable']),
-  creatorWallet: z.string().min(1)
+  creatorWallet: stellarAddressSchema
 });
 
 const investSchema = z.object({
   investAmount: z.number().positive(),
-  operatorWallet: z.string().min(1)
+  operatorWallet: stellarAddressSchema
+});
+
+const repaySchema = z.object({
+  operatorWallet: stellarAddressSchema.optional()
 });
 
 const riskUpdateSchema = z.object({
   newRisk: z.enum(['Low Risk', 'Moderate', 'Stable']),
   oldRisk: z.enum(['Low Risk', 'Moderate', 'Stable']),
-  operatorWallet: z.string().optional()
+  operatorWallet: stellarAddressSchema.optional()
 });
 
 const userSettingsSchema = z.object({
@@ -119,10 +136,19 @@ async function startServer() {
   // API Route: Login / Issue JWT
   app.post("/api/auth/login", (req, res) => {
     const { walletAddress } = req.body;
-    if (!walletAddress) return res.status(400).json({ error: "Missing walletAddress" });
-    const role = walletAddress.startsWith('0xADMIN') ? 'admin' : 'investor';
-    const token = jwt.sign({ walletAddress, role }, JWT_SECRET, { expiresIn: '24h' });
-    res.json({ token });
+    if (!walletAddress || typeof walletAddress !== 'string') {
+      return res.status(400).json({ error: "Missing or invalid walletAddress parameter" });
+    }
+    const trimmed = walletAddress.trim();
+    if (!StrKey.isValidEd25519PublicKey(trimmed)) {
+      return res.status(400).json({ 
+        error: "Invalid Stellar Ed25519 public key. Address must start with 'G' and be exactly 56 characters long." 
+      });
+    }
+    const adminAddress = process.env.ADMIN_STELLAR_ADDRESS || STELLAR_DEMO_KEYS.ADMIN;
+    const role = (trimmed === adminAddress) ? 'admin' : 'investor';
+    const token = jwt.sign({ walletAddress: trimmed, role }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ token, walletAddress: trimmed, role });
   });
 
   // API Route: Risk Scoring via Gemini
@@ -367,7 +393,7 @@ Provide a professional, realistic corporate credit risk summary including a cred
         actionType: 'Tokenization' as const,
         details: `Asset representative initialized on-chain. Invoice of $${invoice.amount.toLocaleString()} for ${invoice.partnerName} successfully tokenized.`,
         txHash: generateSimTxHash(),
-        operatorWallet: invoice.creatorWallet || 'GA5W32...RK6M'
+        operatorWallet: invoice.creatorWallet || STELLAR_DEMO_KEYS.MAIN_USER
       };
       db.addAuditEntry(auditEntry);
       io.emit("invoice_updated", { type: "create", invoiceId: invoice.id });
@@ -420,7 +446,7 @@ Provide a professional, realistic corporate credit risk summary including a cred
         actionType: 'Asset Funding' as const,
         details: `Capital allocation: Secured $${investAmount.toLocaleString()} worth of fractioned receivables. New pool funding status: ${newProgress.toFixed(1)}%.`,
         txHash: generateSimTxHash(),
-        operatorWallet: operatorWallet || 'GA5W32...RK6M'
+        operatorWallet: operatorWallet || STELLAR_DEMO_KEYS.INVESTOR
       };
       db.addAuditEntry(auditEntry);
       io.emit("invoice_updated", { type: "invest", invoiceId: id });
@@ -434,7 +460,11 @@ Provide a professional, realistic corporate credit risk summary including a cred
   app.post("/api/invoices/:id/repay", requireAuth, (req, res) => {
     try {
       const { id } = req.params;
-      const { operatorWallet } = req.body;
+      const parseResult = repaySchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid repayment parameters", details: parseResult.error.issues });
+      }
+      const operatorWallet = parseResult.data.operatorWallet || STELLAR_DEMO_KEYS.MAIN_USER;
 
       const invoices = db.getInvoices();
       const targetInvoice = invoices.find(inv => inv.id === id);
@@ -465,7 +495,7 @@ Provide a professional, realistic corporate credit risk summary including a cred
         actionType: 'Settlement' as const,
         details: `Full mature settlement complete. Deposited $${targetInvoice.amount.toLocaleString()} into ledger contract. Closed corresponding asset trustline.`,
         txHash: generateSimTxHash(),
-        operatorWallet: operatorWallet || 'GA5W32...RK6M'
+        operatorWallet: operatorWallet
       };
       db.addAuditEntry(auditEntry);
       io.emit("invoice_updated", { type: "repay", invoiceId: id });
@@ -513,7 +543,7 @@ Provide a professional, realistic corporate credit risk summary including a cred
         actionType: 'Risk Mutation' as const,
         details: `Institutional credit watch: Risk profile altered from ${oldRisk} to ${newRisk} following periodic risk evaluation.`,
         txHash: generateSimTxHash(),
-        operatorWallet: operatorWallet || 'System Oracle'
+        operatorWallet: operatorWallet || STELLAR_DEMO_KEYS.ADMIN
       };
       db.addAuditEntry(auditEntry);
       io.emit("invoice_updated", { type: "risk", invoiceId: id });
@@ -567,6 +597,9 @@ Provide a professional, realistic corporate credit risk summary including a cred
   app.get("/api/user/:walletAddress", (req, res) => {
     try {
       const { walletAddress } = req.params;
+      if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
+        return res.status(400).json({ error: "Invalid Stellar Ed25519 public key" });
+      }
       const settings = db.getUserSettings(walletAddress);
       res.json(settings);
     } catch (err: any) {
@@ -578,6 +611,9 @@ Provide a professional, realistic corporate credit risk summary including a cred
   app.put("/api/user/:walletAddress", requireAuth, (req, res) => {
     try {
       const { walletAddress } = req.params;
+      if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
+        return res.status(400).json({ error: "Invalid Stellar Ed25519 public key" });
+      }
       const parseResult = userSettingsSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({ error: "Invalid user settings parameters", details: parseResult.error.issues });

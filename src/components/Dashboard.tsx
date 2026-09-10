@@ -35,6 +35,7 @@ import { exportInvoiceToPDF } from '../utils/pdfExport';
 import { useToast } from './Toast';
 import D3LineChart from './D3LineChart';
 import { QRCodeSVG } from 'qrcode.react';
+import { STELLAR_DEMO_KEYS, formatStellarAddress } from '../utils/stellar';
 
 const QUICK_TIPS = [
   {
@@ -89,7 +90,7 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
 
   // Stellar Funding Gateway State
   const [showFundingQr, setShowFundingQr] = useState(false);
-  const walletAddress = wallet?.address || '0x4b789123cba7f9e8a512400f912431682494e2a';
+  const walletAddress = wallet?.address || STELLAR_DEMO_KEYS.MAIN_USER;
 
   // New states for requested features
   const [isExportConfirmOpen, setIsExportConfirmOpen] = useState(false);
@@ -170,8 +171,8 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
     };
   }, []);
 
-  // Active user's mock invoice data calculations
-  const myInvoices = invoices.filter(inv => inv.creatorWallet === '0x4b...4e2a');
+  // Active user's invoice data calculations
+  const myInvoices = invoices.filter(inv => inv.creatorWallet === walletAddress || inv.creatorWallet === STELLAR_DEMO_KEYS.MAIN_USER);
   
   // Total funding received (sum of fully funded or partially funded invoices)
   const totalFundingReceived = invoices
@@ -482,7 +483,7 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
           </div>
 
           {/* D3 Historical Yield and Repayment Performance Line Chart */}
-          <D3LineChart invoices={invoices} theme={theme} />
+          <D3LineChart invoices={invoices} theme={theme} walletAddress={walletAddress} />
 
           {/* Market Sentiment Widget */}
           <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-5 text-left">
@@ -1203,7 +1204,7 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-sm font-mono font-bold text-black uppercase tracking-widest">Stellar Ledger Trail</h4>
               <button 
-                onClick={() => alert("Showing full Stellar ledger trail...")}
+                onClick={() => showToast("Displaying recent Stellar ledger activity records.", "info")}
                 className="text-[10px] font-mono font-bold text-black uppercase tracking-widest underline hover:text-zinc-600 cursor-pointer"
               >
                 See All
@@ -1442,7 +1443,7 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
                             </button>
                           ) : (
                             <button 
-                              onClick={() => alert(`Stellar Transaction Ledger ID: Tx-${inv.id}-CB-Verified`)}
+                              onClick={() => showToast(`Stellar Transaction Ledger ID: Tx-${inv.id}-CB-Verified`, "info")}
                               className="text-zinc-400 hover:text-black hover:underline px-3 py-1.5 text-[9px] font-mono uppercase tracking-wider font-semibold transition-all cursor-pointer"
                             >
                               Hash Trail
@@ -1592,7 +1593,7 @@ export default function Dashboard({ invoices, activities, onSubmitInvoice, onRep
                   <div>
                     <h4 className="text-lg font-display font-bold italic text-on-background">Submitted on Stellar Chain!</h4>
                     <p className="text-[11px] font-mono text-zinc-500 mt-1.5 max-w-xs leading-relaxed mx-auto">
-                      Invoice verified successfully. Smart escrow locked under ledger reference code: <span className="font-mono font-bold text-black underline">0x...4e2a</span>
+                      Invoice verified successfully. Smart escrow locked under ledger reference code: <span className="font-mono font-bold text-black underline">{formatStellarAddress(walletAddress, 6, 6)}</span>
                     </p>
                   </div>
                 </div>

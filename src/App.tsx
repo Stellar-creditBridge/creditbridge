@@ -35,6 +35,7 @@ import Analytics from './components/Analytics';
 import Admin from './components/Admin';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useToast } from './components/Toast';
+import { STELLAR_DEMO_KEYS, formatStellarAddress, isAdminStellarAddress } from './utils/stellar';
 
 const generateSimTxHash = () => {
   const chars = '0123456789abcdef';
@@ -299,7 +300,7 @@ export default function App() {
       daysRemaining: Math.floor(15 + Math.random() * 30), // random days left
       status: 'Pending',
       risk: Math.random() > 0.5 ? 'Low Risk' : 'Stable',
-      creatorWallet: wallet.address || '0x4b...4e2a'
+      creatorWallet: wallet.address || STELLAR_DEMO_KEYS.MAIN_USER
     };
 
     try {
@@ -379,7 +380,7 @@ export default function App() {
 
   const truncateAddress = (addr: string | null) => {
     if (!addr) return '';
-    return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
+    return formatStellarAddress(addr, 4, 4);
   };
 
   const handleNavClick = (targetView: typeof view) => {
@@ -457,6 +458,20 @@ export default function App() {
             >
               Marketplace
             </button>
+            {Boolean(wallet.connected && (wallet.role === 'admin' || (wallet.address && isAdminStellarAddress(wallet.address)))) && (
+              <button 
+                id="nav-admin-desktop"
+                onClick={() => handleNavClick('admin')}
+                className={`font-mono text-[10px] uppercase tracking-widest font-bold py-5 transition-colors cursor-pointer border-b-2 h-full flex items-center gap-1.5 ${
+                  view === 'admin'
+                    ? 'text-red-600 border-red-600'
+                    : 'text-red-500 hover:text-red-700 border-transparent'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Admin</span>
+              </button>
+            )}
           </nav>
         </div>
 
@@ -557,6 +572,14 @@ export default function App() {
           >
             Marketplace
           </button>
+          {Boolean(wallet.connected && (wallet.role === 'admin' || (wallet.address && isAdminStellarAddress(wallet.address)))) && (
+            <button 
+              onClick={() => handleNavClick('admin')}
+              className={`w-full text-left px-4 py-3 rounded-none font-mono text-[10px] uppercase tracking-wider font-bold ${view === 'admin' ? 'bg-red-600 text-white' : 'text-red-600 hover:bg-red-50'}`}
+            >
+              Protocol Admin
+            </button>
+          )}
           {wallet.connected ? (
             <>
               <button 
@@ -590,8 +613,8 @@ export default function App() {
       {/* Main Content Layout container */}
       <div className="flex flex-1 w-full">
         
-        {/* Desktop Sidebar Navigation for Dashboard or Marketplace views */}
-        {wallet.connected && (view === 'dashboard' || view === 'marketplace') && (
+        {/* Desktop Sidebar Navigation for Dashboard, Marketplace or Admin views */}
+        {wallet.connected && (view === 'dashboard' || view === 'marketplace' || view === 'admin') && (
           <aside className="hidden md:flex flex-col w-64 bg-background border-r border-black/10 p-5 shrink-0 sticky top-16 h-[calc(100vh-64px)] text-left">
             <nav className="flex-1 space-y-1">
               <button 
@@ -621,12 +644,27 @@ export default function App() {
               </button>
               
               <button 
-                onClick={() => alert("Tokenized invoices security vaults on Stellar Core are 100% synchronized.")}
+                onClick={() => showToast("Tokenized invoices security vaults on Stellar Core are 100% synchronized.", "info")}
                 className="w-full flex items-center gap-3 p-3.5 rounded-none font-mono text-[10px] uppercase tracking-wider font-bold transition-all text-zinc-500 hover:bg-black/5 hover:text-black cursor-pointer"
               >
                 <Coins className="w-4 h-4 shrink-0" />
                 <span>Token Yields</span>
               </button>
+
+              {Boolean(wallet.role === 'admin' || (wallet.address && isAdminStellarAddress(wallet.address))) && (
+                <button 
+                  id="sidebar-admin-btn"
+                  onClick={() => handleNavClick('admin')}
+                  className={`w-full flex items-center gap-3 p-3.5 rounded-none font-mono text-[10px] uppercase tracking-wider font-bold transition-all cursor-pointer ${
+                    view === 'admin'
+                      ? 'bg-red-600 text-white'
+                      : 'text-red-600 hover:bg-red-50'
+                  }`}
+                >
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  <span>Protocol Admin</span>
+                </button>
+              )}
             </nav>
 
             <div className="pt-4 border-t border-black/10 space-y-1">
