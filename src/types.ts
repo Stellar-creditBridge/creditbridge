@@ -74,3 +74,43 @@ export interface InvestorPortfolioSummary {
   settledPositionsCount: number;
 }
 
+// --- Live Stellar Network Monitoring Types ---
+export type StellarNetworkId = 'testnet' | 'public' | 'futurenet' | 'local';
+
+export type StellarNetworkAvailability = 'healthy' | 'degraded' | 'unavailable';
+
+export interface StellarLatestLedger {
+  sequence: number;
+  closedAt: string; // ISO 8601 string
+  closeTimeSeconds: number; // e.g. 5.0 seconds
+  baseFee: number; // in stroops (1 stroop = 0.0000001 XLM)
+  txCount: number; // successful transaction count in the ledger
+  operationCount?: number;
+}
+
+export interface StellarFeeStats {
+  lastLedgerBaseFee: number; // in stroops
+  minAcceptedFee: number; // in stroops
+  modeAcceptedFee: number; // in stroops
+  p50AcceptedFee: number; // in stroops
+  capacityUsage: number; // float 0.0 - 1.0 representing capacity usage
+}
+
+export interface StellarNetworkStatus {
+  network: StellarNetworkId;
+  networkPassphrase: string;
+  horizonUrl: string;
+  explorerBaseUrl: string;
+  status: StellarNetworkAvailability;
+  latestLedger: StellarLatestLedger | null;
+  feeStats: StellarFeeStats | null;
+  protocolVersion: number | null;
+  coreVersion?: string;
+  horizonVersion?: string;
+  fetchedAt: string; // ISO 8601 string of when CreditBridge queried Horizon
+  isCached: boolean;
+  isStale: boolean;
+  latencyMs?: number;
+  error?: string | null;
+}
+

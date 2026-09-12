@@ -15,6 +15,7 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import { StrKey } from "@stellar/stellar-sdk";
 import { STELLAR_DEMO_KEYS } from "./src/utils/stellar";
+import { stellarNetworkService } from "./src/services/stellarNetworkService";
 import { 
   roundCurrency, 
   calculateExpectedYield, 
@@ -92,6 +93,7 @@ const generateSimTxHash = () => {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   const PORT = Number(process.env.PORT) || 3000;
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
@@ -124,12 +126,14 @@ async function startServer() {
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 1000,
+    validate: false,
     message: { error: 'Too many requests, please try again later.' }
   });
   
   const aiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 60,
+    validate: false,
     message: { error: 'Too many AI analysis requests, please try again later.' }
   });
 
@@ -357,6 +361,36 @@ Provide a professional, realistic corporate credit risk summary including a cred
         ],
         isSimulated: true,
         errorMsg: error?.message || String(error)
+      });
+    }
+  });
+
+  // API Route: Live Stellar Network Telemetry & Horizon Monitoring
+  app.get("/api/stellar/network", async (req, res) => {
+    try {
+      const forceFresh = req.query.fresh === "true" || req.query.fresh === "1";
+      const status = await stellarNetworkService.getNetworkStatus(forceFresh);
+
+      if (status.status === 'unavailable') {
+        res.status(503).json(status);
+      } else {
+        res.status(200).json(status);
+      }
+    } catch (err: any) {
+      console.error("Error retrieving Stellar network status:", err);
+      res.status(500).json({
+        network: 'testnet',
+        networkPassphrase: 'Test SDF Network ; September 2015',
+        horizonUrl: 'https://horizon-testnet.stellar.org',
+        explorerBaseUrl: 'https://stellar.expert/explorer/testnet',
+        status: 'unavailable',
+        latestLedger: null,
+        feeStats: null,
+        protocolVersion: null,
+        fetchedAt: new Date().toISOString(),
+        isCached: false,
+        isStale: false,
+        error: err?.message || "Internal server error fetching Stellar network data",
       });
     }
   });

@@ -22,7 +22,8 @@ import {
   History,
   Fingerprint,
   Search,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ExternalLink
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { Invoice, Activity, WalletState, AuditTrailEntry, Investment } from './types';
@@ -35,7 +36,7 @@ import Analytics from './components/Analytics';
 import Admin from './components/Admin';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useToast } from './components/Toast';
-import { STELLAR_DEMO_KEYS, formatStellarAddress, isAdminStellarAddress } from './utils/stellar';
+import { STELLAR_DEMO_KEYS, formatStellarAddress, isAdminStellarAddress, getStellarExplorerUrl } from './utils/stellar';
 
 const generateSimTxHash = () => {
   const chars = '0123456789abcdef';
@@ -1105,18 +1106,20 @@ export default function App() {
                               <div className="pt-1.5 border-t border-dashed border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-y-1 text-[8px] font-mono text-zinc-400 dark:text-zinc-500">
                                 <div className="flex items-center gap-1">
                                   <Fingerprint className="w-2.5 h-2.5 shrink-0" />
-                                  <span>TX:</span>
+                                  <span className="px-1 py-0.2 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border border-zinc-200 dark:border-zinc-700 uppercase text-[7px] font-bold">
+                                    Simulated TX:
+                                  </span>
                                   {entry.txHash ? (
                                     <button
                                       type="button"
                                       onClick={() => {
                                         navigator.clipboard.writeText(entry.txHash || '');
-                                        showToast("Transaction hash copied!", "success");
+                                        showToast("Simulated transaction hash copied!", "info");
                                       }}
                                       className="hover:text-black dark:hover:text-white underline cursor-pointer truncate max-w-[100px] sm:max-w-none text-left"
-                                      title="Click to copy full transaction hash"
+                                      title="Prototype simulated hash (real on-chain submission activates in later checkpoint)"
                                     >
-                                      {entry.txHash.substring(0, 10)}...{entry.txHash.substring(54)}
+                                      {entry.txHash.substring(0, 8)}...{entry.txHash.substring(56)}
                                     </button>
                                   ) : (
                                     <span>N/A</span>
@@ -1124,7 +1127,16 @@ export default function App() {
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <span>OP:</span>
-                                  <span className="text-zinc-600 dark:text-zinc-400">{entry.operatorWallet.length > 10 ? `${entry.operatorWallet.substring(0, 6)}...${entry.operatorWallet.substring(entry.operatorWallet.length - 4)}` : entry.operatorWallet}</span>
+                                  <a
+                                    href={getStellarExplorerUrl('account', entry.operatorWallet)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="View operator wallet on Stellar.Expert"
+                                    className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white underline flex items-center gap-0.5"
+                                  >
+                                    <span>{entry.operatorWallet.length > 10 ? `${entry.operatorWallet.substring(0, 6)}...${entry.operatorWallet.substring(entry.operatorWallet.length - 4)}` : entry.operatorWallet}</span>
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
                                 </div>
                               </div>
                             </div>

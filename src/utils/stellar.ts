@@ -1,4 +1,55 @@
-import { StrKey } from '@stellar/stellar-sdk';
+import { StrKey, Networks } from '@stellar/stellar-sdk';
+import { StellarNetworkId } from '../types';
+
+export interface StellarNetworkDefinition {
+  id: StellarNetworkId;
+  label: string;
+  horizonUrl: string;
+  networkPassphrase: string;
+  explorerBaseUrl: string;
+}
+
+export const STELLAR_NETWORKS: Record<'testnet' | 'public', StellarNetworkDefinition> = {
+  testnet: {
+    id: 'testnet',
+    label: 'Stellar Testnet',
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+    networkPassphrase: Networks.TESTNET,
+    explorerBaseUrl: 'https://stellar.expert/explorer/testnet',
+  },
+  public: {
+    id: 'public',
+    label: 'Stellar Public Network (Mainnet)',
+    horizonUrl: 'https://horizon.stellar.org',
+    networkPassphrase: Networks.PUBLIC,
+    explorerBaseUrl: 'https://stellar.expert/explorer/public',
+  },
+};
+
+export const DEFAULT_STELLAR_NETWORK: 'testnet' | 'public' = 'testnet';
+
+/**
+ * Returns a Stellar.Expert URL for genuine on-chain entities.
+ * Note: NEVER call this for simulated transaction hashes or unconfirmed mock entities.
+ */
+export function getStellarExplorerUrl(
+  type: 'ledger' | 'account' | 'tx',
+  identifier: string | number,
+  network: 'testnet' | 'public' = DEFAULT_STELLAR_NETWORK
+): string {
+  const cleanId = String(identifier).trim();
+  const base = STELLAR_NETWORKS[network]?.explorerBaseUrl || STELLAR_NETWORKS.testnet.explorerBaseUrl;
+  switch (type) {
+    case 'ledger':
+      return `${base}/ledger/${cleanId}`;
+    case 'account':
+      return `${base}/account/${cleanId}`;
+    case 'tx':
+      return `${base}/tx/${cleanId}`;
+    default:
+      return base;
+  }
+}
 
 /**
  * Validates whether a given string is a valid Stellar Ed25519 public key (G... 56 chars).

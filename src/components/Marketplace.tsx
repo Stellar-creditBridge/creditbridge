@@ -16,7 +16,8 @@ import {
   Search,
   Users,
   Info,
-  Copy
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { Invoice, WalletState, Investment } from '../types';
 import { useToast } from './Toast';
@@ -26,7 +27,7 @@ import {
   calculateOwnershipPercentage, 
   roundCurrency 
 } from '../utils/investmentAccounting';
-import { STELLAR_DEMO_KEYS, formatStellarAddress } from '../utils/stellar';
+import { STELLAR_DEMO_KEYS, formatStellarAddress, getStellarExplorerUrl } from '../utils/stellar';
 
 interface MarketplaceProps {
   invoices: Invoice[];
@@ -981,6 +982,15 @@ export default function Marketplace({ invoices, investments = [], onInvest, wall
                                       {isCurrentWallet && (
                                         <span className="px-1 py-0.2 bg-black text-white text-[7px] uppercase font-bold">You</span>
                                       )}
+                                      <a
+                                        href={getStellarExplorerUrl('account', pos.investorWallet)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-zinc-400 hover:text-black p-0.5"
+                                        title="View on Stellar.Expert block explorer"
+                                      >
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </a>
                                       <button 
                                         onClick={() => {
                                           navigator.clipboard?.writeText(pos.investorWallet);
