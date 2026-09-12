@@ -120,20 +120,20 @@ async function startServer() {
   app.use(cors());
   app.use(morgan('dev'));
 
-  // Rate Limiting
-  const globalLimiter = rateLimit({
+  // Rate Limiting (scoped to /api routes to prevent throttling Vite assets or WebSockets)
+  const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 1000,
     message: { error: 'Too many requests, please try again later.' }
   });
   
   const aiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 20,
+    max: 60,
     message: { error: 'Too many AI analysis requests, please try again later.' }
   });
 
-  app.use(globalLimiter);
+  app.use('/api', apiLimiter);
   app.use('/api/risk-scoring', aiLimiter);
   app.use('/api/market-sentiment', aiLimiter);
 

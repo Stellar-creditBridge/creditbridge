@@ -72,10 +72,10 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'midnight'>('light');
 
   // Global state for invoices, investments, and activities
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
   const [investments, setInvestments] = useState<Investment[]>(INITIAL_INVESTMENTS);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [auditTrail, setAuditTrail] = useState<AuditTrailEntry[]>([]);
+  const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
+  const [auditTrail, setAuditTrail] = useState<AuditTrailEntry[]>(INITIAL_AUDIT_TRAIL);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Settings & Risk Alerts States
@@ -145,7 +145,7 @@ export default function App() {
         setAuditTrail(data);
       }
     } catch (err) {
-      console.error("Error fetching board data from API", err);
+      console.warn("Could not synchronize live data with API (using cached/fallback state):", err);
     }
   };
 
