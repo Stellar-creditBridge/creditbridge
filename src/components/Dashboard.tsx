@@ -46,6 +46,7 @@ import D3LineChart from './D3LineChart';
 import { QRCodeSVG } from 'qrcode.react';
 import { STELLAR_DEMO_KEYS, formatStellarAddress, getStellarExplorerUrl } from '../utils/stellar';
 import { useStellarNetwork } from '../hooks/useStellarNetwork';
+import SafeTransactionPanel from './SafeTransactionPanel';
 import { 
   calculatePortfolioSummary, 
   calculateOwnershipPercentage, 
@@ -1482,6 +1483,9 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
               </AnimatePresence>
             </div>
           </div>
+
+          {/* Safe Non-Custodial On-Chain Transaction & Audit Signer */}
+          <SafeTransactionPanel wallet={wallet} />
 
           {/* Stellar Quick Tips */}
           <div className="border-t border-black/5 pt-4 text-left">

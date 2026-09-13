@@ -238,6 +238,158 @@ class StellarNetworkService {
       return unavailableStatus;
     }
   }
+
+  /**
+   * Loads account status from Horizon to verify whether an account exists and is funded.
+   */
+  public async getAccountFundingStatus(address: string): Promise<{
+    isFunded: boolean;
+    balanceXlm?: string;
+    subentryCount?: number;
+    sequence?: string;
+    address: string;
+    network: StellarNetworkId;
+  }> {
+    try {
+      const account = await this.withTimeout(
+        this.server.loadAccount(address),
+        this.REQUEST_TIMEOUT_MS,
+        `loadAccount(${address})`
+      );
+
+      // Find native XLM balance
+      const nativeBal = account.balances.find(b => b.asset_type === 'native');
+      const balanceXlm = nativeBal ? nativeBal.balance : '0';
+
+      return {
+        isFunded: true,
+        balanceXlm,
+        subentryCount: account.subentry_count,
+        sequence: account.sequenceNumber(),
+        address,
+        network: this.networkId,
+      };
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        return {
+          isFunded: false,
+          address,
+          network: this.networkId,
+        };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Constructs an unsigned safe Testnet proof transaction.
+   * Uses manageData operation to record an audit checkpoint without transferring funds.
+   */
+  public async prepareTestnetProofTransaction(sourceAddress: string): Promise<{
+    unsignedXdr: string;
+    network: StellarNetworkId;
+    networkPassphrase: string;
+    sourceAccount: string;
+    sequence: string;
+    baseFee: number;
+    operationType: string;
+    memo: string;
+  }> {
+    // 1. Safety check: ensure network is testnet
+    if (this.networkId !== 'testnet') {
+      throw new Error('Testnet proof transactions are strictly forbidden on Public Mainnet.');
+    }
+
+    // 2. Verify account exists on Horizon
+    const funding = await this.getAccountFundingStatus(sourceAddress);
+    if (!funding.isFunded) {
+      throw new Error(
+        `Account ${sourceAddress} is not funded on Stellar Testnet. Please fund your Testnet account using Friendbot before submitting transactions.`
+      );
+    }
+
+    // 3. Load live sequence number
+    const account = await this.server.loadAccount(sourceAddress);
+
+    // 4. Fetch live fee stats to set fair base fee
+    let fee = '100';
+    try {
+      const feeStats = await this.server.feeStats();
+      if (feeStats && feeStats.last_ledger_base_fee) {
+        fee = String(Math.max(100, Number(feeStats.last_ledger_base_fee)));
+      }
+    } catch {
+      fee = '100';
+    }
+
+    // 5. Build transaction with a safe manageData audit proof (Harmless, does not move funds)
+    const { TransactionBuilder, Operation, Memo } = await import('@stellar/stellar-sdk');
+
+    const tx = new TransactionBuilder(account, {
+      fee,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        Operation.manageData({
+          name: 'CB_PROOF',
+          value: Buffer.from(`CB_AUDIT_${Date.now()}`),
+        })
+      )
+      .addMemo(Memo.text('CreditBridge Proof'))
+      .setTimeout(180) // 3 minute validity window
+      .build();
+
+    return {
+      unsignedXdr: tx.toXDR(),
+      network: this.networkId,
+      networkPassphrase: this.networkPassphrase,
+      sourceAccount: sourceAddress,
+      sequence: account.sequenceNumber(),
+      baseFee: Number(fee),
+      operationType: 'manageData',
+      memo: 'CreditBridge Proof',
+    };
+  }
+
+  /**
+   * Submits a user-signed transaction envelope to Stellar Horizon.
+   */
+  public async submitTransaction(signedEnvelopeXdr: string): Promise<{
+    successful: boolean;
+    hash: string;
+    ledger?: number;
+    network: StellarNetworkId;
+    createdAt: string;
+    explorerUrl: string;
+    envelopeXdr: string;
+    resultXdr?: string;
+  }> {
+    const { TransactionBuilder } = await import('@stellar/stellar-sdk');
+    
+    // Parse transaction envelope from XDR to extract hash and metadata
+    const tx = TransactionBuilder.fromXDR(signedEnvelopeXdr, this.networkPassphrase);
+    const txHash = Buffer.from(tx.hash()).toString('hex');
+
+    // Submit to Horizon
+    const submissionResult = await this.withTimeout(
+      this.server.submitTransaction(tx),
+      15000,
+      `submitTransaction(${txHash})`
+    );
+
+    const explorerUrl = `${this.explorerBaseUrl}/tx/${submissionResult.hash}`;
+
+    return {
+      successful: Boolean(submissionResult.successful),
+      hash: submissionResult.hash,
+      ledger: submissionResult.ledger,
+      network: this.networkId,
+      createdAt: new Date().toISOString(),
+      explorerUrl,
+      envelopeXdr: submissionResult.envelope_xdr,
+      resultXdr: submissionResult.result_xdr,
+    };
+  }
 }
 
 // Export singleton instance

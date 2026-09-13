@@ -145,6 +145,11 @@ async function startServer() {
     console.warn("⚠️  WARNING: GEMINI_API_KEY is not set. The app will use high-fidelity simulated local responses for AI endpoints.");
   }
 
+  // API Route: Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", protocol: "CreditBridge", timestamp: new Date().toISOString() });
+  });
+
   // API Route: Login / Issue JWT
   app.post("/api/auth/login", (req, res) => {
     const { walletAddress } = req.body;
@@ -391,6 +396,98 @@ Provide a professional, realistic corporate credit risk summary including a cred
         isCached: false,
         isStale: false,
         error: err?.message || "Internal server error fetching Stellar network data",
+      });
+    }
+  });
+
+  // API Route: Check Stellar Account Funding Status & Balances
+  app.get("/api/stellar/account/:address", async (req, res) => {
+    try {
+      const { address } = req.params;
+      if (!address || !StrKey.isValidEd25519PublicKey(address.trim())) {
+        return res.status(400).json({
+          error: "Invalid Stellar Ed25519 public key. Must start with 'G' and be 56 characters."
+        });
+      }
+      const fundingStatus = await stellarNetworkService.getAccountFundingStatus(address.trim());
+      res.json(fundingStatus);
+    } catch (err: any) {
+      console.error("Error querying Stellar account funding:", err);
+      res.status(500).json({
+        error: "Failed to query account status from Horizon",
+        details: err?.message || String(err)
+      });
+    }
+  });
+
+  // API Route: Construct Unsigned Safe Testnet Proof Transaction
+  app.post("/api/stellar/tx/prepare-proof", requireAuth, async (req, res) => {
+    try {
+      const { sourceAddress } = req.body;
+      if (!sourceAddress || !StrKey.isValidEd25519PublicKey(sourceAddress.trim())) {
+        return res.status(400).json({
+          error: "Invalid source Stellar Ed25519 public key."
+        });
+      }
+
+      // Security check: ensure requesting token matches sourceAddress
+      const user = (req as any).user;
+      if (user && user.walletAddress !== sourceAddress.trim()) {
+        return res.status(403).json({
+          error: "Unauthorized: Token wallet address does not match requested source address."
+        });
+      }
+
+      const prepResult = await stellarNetworkService.prepareTestnetProofTransaction(sourceAddress.trim());
+      res.json(prepResult);
+    } catch (err: any) {
+      console.error("Error constructing Stellar proof transaction:", err);
+      res.status(400).json({
+        error: err?.message || "Failed to prepare transaction",
+        details: String(err)
+      });
+    }
+  });
+
+  // API Route: Submit Genuine User-Signed Transaction Envelope to Stellar Horizon
+  app.post("/api/stellar/tx/submit", requireAuth, async (req, res) => {
+    try {
+      const { signedXdr } = req.body;
+      if (!signedXdr || typeof signedXdr !== 'string') {
+        return res.status(400).json({
+          error: "Missing or invalid 'signedXdr' envelope parameter."
+        });
+      }
+
+      const submitResult = await stellarNetworkService.submitTransaction(signedXdr.trim());
+
+      // If submission succeeded, log an audit trail entry as genuine
+      const user = (req as any).user;
+      const operatorWallet = user?.walletAddress || STELLAR_DEMO_KEYS.MAIN_USER;
+      const auditId = `trail-stellar-${Date.now()}`;
+      const auditEntry = {
+        id: auditId,
+        timestamp: new Date().toISOString(),
+        eventId: `TX-${submitResult.hash.slice(0, 8).toUpperCase()}`,
+        eventName: 'Stellar On-Chain Audit Proof',
+        actionType: 'Tokenization' as const,
+        details: `Genuine Stellar Testnet transaction confirmed in ledger ${submitResult.ledger || 'unknown'}. Memo: CreditBridge Proof.`,
+        txHash: submitResult.hash,
+        isSimulated: false,
+        operatorWallet
+      };
+      db.addAuditEntry(auditEntry);
+
+      res.json({
+        success: true,
+        ...submitResult,
+        auditEntry
+      });
+    } catch (err: any) {
+      console.error("Error submitting transaction to Stellar network:", err);
+      res.status(502).json({
+        error: "Failed to submit transaction to Stellar network",
+        details: err?.message || String(err)
       });
     }
   });
