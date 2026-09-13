@@ -47,6 +47,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { STELLAR_DEMO_KEYS, formatStellarAddress, getStellarExplorerUrl } from '../utils/stellar';
 import { useStellarNetwork } from '../hooks/useStellarNetwork';
 import SafeTransactionPanel from './SafeTransactionPanel';
+import RepaymentSettlementModal from './RepaymentSettlementModal';
 import { 
   calculatePortfolioSummary, 
   calculateOwnershipPercentage, 
@@ -127,6 +128,7 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
   const [investmentStatusFilter, setInvestmentStatusFilter] = useState<'all' | 'Active' | 'Settled'>('all');
   const [inspectingPosition, setInspectingPosition] = useState<Investment | null>(null);
   const [isExportInvestmentsConfirmOpen, setIsExportInvestmentsConfirmOpen] = useState(false);
+  const [settlingInvoice, setSettlingInvoice] = useState<Invoice | null>(null);
 
   // Yield Calculator State
   const [calcAmount, setCalcAmount] = useState('10000');
@@ -1735,7 +1737,7 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onRepayInvoice(inv.id);
+                                setSettlingInvoice(inv);
                               }}
                               className="mt-1 bg-black hover:bg-zinc-800 text-white text-[8px] py-1 px-1.5 font-mono uppercase tracking-wider font-bold transition-all cursor-pointer text-center"
                             >
@@ -1786,7 +1788,7 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
                         <td className="px-6 py-4 text-right">
                           {inv.status === 'Due Soon' ? (
                             <button 
-                              onClick={() => onRepayInvoice(inv.id)}
+                              onClick={() => setSettlingInvoice(inv)}
                               className="bg-black hover:bg-zinc-800 text-white px-4 py-1.5 rounded-none text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer"
                             >
                               Settle Now
@@ -1799,6 +1801,14 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
                               className="text-black hover:underline px-3 py-1.5 text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer"
                             >
                               Review Terms
+                            </button>
+                          ) : inv.status === 'Paid' ? (
+                            <button 
+                              onClick={() => setSettlingInvoice(inv)}
+                              className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-[9px] font-mono uppercase tracking-wider font-bold transition-all cursor-pointer flex items-center gap-1 ml-auto"
+                            >
+                              <span>Settled</span>
+                              <ExternalLink className="w-3 h-3" />
                             </button>
                           ) : (
                             <button 
@@ -2773,6 +2783,19 @@ Status: ${inspectingPosition.status}`;
           </div>
         )}
       </AnimatePresence>
+
+      {/* Repayment & Settlement Lifecycle Modal */}
+      {settlingInvoice && (
+        <RepaymentSettlementModal
+          isOpen={Boolean(settlingInvoice)}
+          invoice={settlingInvoice}
+          wallet={wallet}
+          onClose={() => setSettlingInvoice(null)}
+          onSettlementComplete={(record) => {
+            onRepayInvoice(record.invoiceId);
+          }}
+        />
+      )}
 
     </div>
   );

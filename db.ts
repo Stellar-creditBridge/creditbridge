@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { Invoice, Activity, AuditTrailEntry, Investment } from './src/types';
+import { Invoice, Activity, AuditTrailEntry, Investment, SettlementRecord, InvoiceSettlementState, InvestorEntitlement } from './src/types';
 import { INITIAL_INVOICES, INITIAL_ACTIVITIES, INITIAL_AUDIT_TRAIL, INITIAL_INVESTMENTS } from './src/data';
 import { STELLAR_DEMO_KEYS } from './src/utils/stellar';
 
@@ -26,12 +26,14 @@ let jsonData: {
   activities: Activity[];
   audit_trail: AuditTrailEntry[];
   investments: Investment[];
+  settlements: SettlementRecord[];
 } = {
   users: {},
   invoices: [],
   activities: [],
   audit_trail: [],
-  investments: []
+  investments: [],
+  settlements: []
 };
 
 // Loader and saver for JSON fallback
@@ -41,6 +43,10 @@ function loadJson() {
       jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
       if (!jsonData.investments) {
         jsonData.investments = [...INITIAL_INVESTMENTS];
+        saveJson();
+      }
+      if (!jsonData.settlements) {
+        jsonData.settlements = [];
         saveJson();
       }
     } catch (e) {
@@ -71,7 +77,8 @@ function seedFallbackJson() {
     invoices: INITIAL_INVOICES,
     activities: INITIAL_ACTIVITIES,
     audit_trail: INITIAL_AUDIT_TRAIL,
-    investments: INITIAL_INVESTMENTS
+    investments: INITIAL_INVESTMENTS,
+    settlements: []
   };
   saveJson();
 }
@@ -146,6 +153,28 @@ if (isSqlite && sqlDb) {
         txHash TEXT,
         operatorWallet TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS settlements (
+        id TEXT PRIMARY KEY,
+        invoiceId TEXT NOT NULL,
+        debtorWallet TEXT NOT NULL,
+        amountDue REAL NOT NULL,
+        totalDistributed REAL NOT NULL,
+        status TEXT NOT NULL,
+        network TEXT NOT NULL DEFAULT 'testnet',
+        stellarTxHash TEXT,
+        ledger INTEGER,
+        explorerUrl TEXT,
+        entitlementsJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        submittedAt TEXT,
+        settledAt TEXT,
+        failureReason TEXT,
+        FOREIGN KEY (invoiceId) REFERENCES invoices(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_settlements_invoice ON settlements(invoiceId);
+      CREATE INDEX IF NOT EXISTS idx_settlements_status ON settlements(status);
     `);
 
     // Check if invoices table is empty, if so, seed
@@ -252,6 +281,18 @@ if (isSqlite && sqlDb) {
           SET creatorWallet = ? 
           WHERE creatorWallet = '0x5b...829a'
         `).run(STELLAR_DEMO_KEYS.BORROWER_TECH);
+
+        // Add settlementStatus and settlementTxHash columns to invoices if missing
+        try {
+          const colCheck = sqlDb.prepare("PRAGMA table_info(invoices)").all();
+          const hasSettlementStatus = colCheck.some((c: any) => c.name === 'settlementStatus');
+          if (!hasSettlementStatus) {
+            sqlDb.prepare("ALTER TABLE invoices ADD COLUMN settlementStatus TEXT DEFAULT 'NotDue'").run();
+            sqlDb.prepare("ALTER TABLE invoices ADD COLUMN settlementTxHash TEXT").run();
+          }
+        } catch (colErr) {
+          // Non-blocking schema addition
+        }
 
         // Ensure admin user exists in users table
         sqlDb.prepare(`
@@ -363,13 +404,19 @@ export function investInvoice(id: string, progress: number, status: string) {
   }
 }
 
-export function repayInvoice(id: string) {
+export function repayInvoice(id: string, settlementTxHash?: string) {
   if (isSqlite) {
     try {
       const tx = sqlDb.transaction(() => {
         sqlDb.prepare(`
-          UPDATE invoices SET status = 'Paid', fundingProgress = 100 WHERE id = ?
-        `).run(id);
+          UPDATE invoices 
+          SET status = 'Paid', 
+              fundingProgress = 100, 
+              settlementStatus = 'Settled', 
+              settlementTxHash = COALESCE(?, settlementTxHash) 
+          WHERE id = ?
+        `).run(settlementTxHash || null, id);
+
         sqlDb.prepare(`
           UPDATE investments SET status = 'Settled' WHERE invoiceId = ? AND status = 'Active'
         `).run(id);
@@ -383,6 +430,10 @@ export function repayInvoice(id: string) {
     if (inv) {
       inv.status = 'Paid';
       inv.fundingProgress = 100;
+      inv.settlementStatus = 'Settled';
+      if (settlementTxHash) {
+        inv.settlementTxHash = settlementTxHash;
+      }
     }
     if (jsonData.investments) {
       jsonData.investments.forEach(pos => {
@@ -717,5 +768,178 @@ export function clearAuditTrail() {
   } else {
     jsonData.audit_trail = [];
     saveJson();
+  }
+}
+
+// --- Settlement Lifecycle & Record Methods ---
+
+export function getSettlementRecords(): SettlementRecord[] {
+  if (isSqlite) {
+    try {
+      const rows = sqlDb.prepare("SELECT * FROM settlements ORDER BY createdAt DESC").all();
+      return rows.map((r: any) => ({
+        id: r.id,
+        invoiceId: r.invoiceId,
+        debtorWallet: r.debtorWallet,
+        amountDue: Number(r.amountDue),
+        totalDistributed: Number(r.totalDistributed),
+        status: r.status as InvoiceSettlementState,
+        network: r.network,
+        stellarTxHash: r.stellarTxHash || undefined,
+        ledger: r.ledger ? Number(r.ledger) : undefined,
+        explorerUrl: r.explorerUrl || undefined,
+        entitlements: JSON.parse(r.entitlementsJson || '[]'),
+        createdAt: r.createdAt,
+        submittedAt: r.submittedAt || undefined,
+        settledAt: r.settledAt || undefined,
+        failureReason: r.failureReason || undefined
+      }));
+    } catch (err) {
+      console.error("SQL getSettlementRecords error", err);
+      return [];
+    }
+  } else {
+    return jsonData.settlements || [];
+  }
+}
+
+export function getSettlementRecordByInvoice(invoiceId: string): SettlementRecord | undefined {
+  if (isSqlite) {
+    try {
+      const r = sqlDb.prepare("SELECT * FROM settlements WHERE invoiceId = ? ORDER BY createdAt DESC LIMIT 1").get(invoiceId);
+      if (!r) return undefined;
+      return {
+        id: r.id,
+        invoiceId: r.invoiceId,
+        debtorWallet: r.debtorWallet,
+        amountDue: Number(r.amountDue),
+        totalDistributed: Number(r.totalDistributed),
+        status: r.status as InvoiceSettlementState,
+        network: r.network,
+        stellarTxHash: r.stellarTxHash || undefined,
+        ledger: r.ledger ? Number(r.ledger) : undefined,
+        explorerUrl: r.explorerUrl || undefined,
+        entitlements: JSON.parse(r.entitlementsJson || '[]'),
+        createdAt: r.createdAt,
+        submittedAt: r.submittedAt || undefined,
+        settledAt: r.settledAt || undefined,
+        failureReason: r.failureReason || undefined
+      };
+    } catch (err) {
+      console.error("SQL getSettlementRecordByInvoice error", err);
+      return undefined;
+    }
+  } else {
+    return (jsonData.settlements || []).find(s => s.invoiceId === invoiceId);
+  }
+}
+
+export function createSettlementRecord(record: SettlementRecord): boolean {
+  if (isSqlite) {
+    try {
+      sqlDb.prepare(`
+        INSERT INTO settlements (
+          id, invoiceId, debtorWallet, amountDue, totalDistributed, status, network,
+          stellarTxHash, ledger, explorerUrl, entitlementsJson, createdAt, submittedAt, settledAt, failureReason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        record.id,
+        record.invoiceId,
+        record.debtorWallet,
+        record.amountDue,
+        record.totalDistributed,
+        record.status,
+        record.network,
+        record.stellarTxHash || null,
+        record.ledger || null,
+        record.explorerUrl || null,
+        JSON.stringify(record.entitlements || []),
+        record.createdAt,
+        record.submittedAt || null,
+        record.settledAt || null,
+        record.failureReason || null
+      );
+      return true;
+    } catch (err) {
+      console.error("SQL createSettlementRecord error", err);
+      return false;
+    }
+  } else {
+    if (!jsonData.settlements) jsonData.settlements = [];
+    jsonData.settlements.unshift(record);
+    saveJson();
+    return true;
+  }
+}
+
+export function updateSettlementRecord(record: SettlementRecord): boolean {
+  if (isSqlite) {
+    try {
+      sqlDb.prepare(`
+        UPDATE settlements 
+        SET status = ?, 
+            totalDistributed = ?,
+            stellarTxHash = COALESCE(?, stellarTxHash),
+            ledger = COALESCE(?, ledger),
+            explorerUrl = COALESCE(?, explorerUrl),
+            entitlementsJson = ?,
+            submittedAt = COALESCE(?, submittedAt),
+            settledAt = COALESCE(?, settledAt),
+            failureReason = ?
+        WHERE id = ?
+      `).run(
+        record.status,
+        record.totalDistributed,
+        record.stellarTxHash || null,
+        record.ledger || null,
+        record.explorerUrl || null,
+        JSON.stringify(record.entitlements || []),
+        record.submittedAt || null,
+        record.settledAt || null,
+        record.failureReason || null,
+        record.id
+      );
+      return true;
+    } catch (err) {
+      console.error("SQL updateSettlementRecord error", err);
+      return false;
+    }
+  } else {
+    if (!jsonData.settlements) jsonData.settlements = [];
+    const idx = jsonData.settlements.findIndex(s => s.id === record.id);
+    if (idx !== -1) {
+      jsonData.settlements[idx] = record;
+      saveJson();
+      return true;
+    }
+    return false;
+  }
+}
+
+export function updateInvoiceSettlementStatus(
+  invoiceId: string, 
+  settlementStatus: InvoiceSettlementState, 
+  settlementTxHash?: string
+) {
+  if (isSqlite) {
+    try {
+      sqlDb.prepare(`
+        UPDATE invoices 
+        SET settlementStatus = ?,
+            settlementTxHash = COALESCE(?, settlementTxHash)
+        WHERE id = ?
+      `).run(settlementStatus, settlementTxHash || null, invoiceId);
+    } catch (err) {
+      console.error("SQL updateInvoiceSettlementStatus error", err);
+    }
+  } else {
+    const inv = jsonData.invoices.find(i => i.id === invoiceId);
+    if (inv) {
+      inv.settlementStatus = settlementStatus;
+      if (settlementTxHash) {
+        inv.settlementTxHash = settlementTxHash;
+      }
+      saveJson();
+    }
   }
 }

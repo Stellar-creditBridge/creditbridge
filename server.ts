@@ -21,9 +21,10 @@ import {
   calculateExpectedYield, 
   calculateExpectedReturn, 
   calculateOwnershipPercentage, 
-  calculatePortfolioSummary 
+  calculatePortfolioSummary,
+  calculateInvoiceSettlement 
 } from "./src/utils/investmentAccounting";
-import { Investment, InvestmentWithInvoice } from "./src/types";
+import { Investment, InvestmentWithInvoice, SettlementRecord, InvoiceSettlementState, InvestorEntitlement } from "./src/types";
 
 // --- Stellar Public Key Zod Validator ---
 const stellarAddressSchema = z.string().refine((val) => {
@@ -66,8 +67,14 @@ const investSchema = z.object({
   operatorWallet: stellarAddressSchema
 });
 
+const repayPrepareSchema = z.object({
+  debtorWallet: stellarAddressSchema
+});
+
 const repaySchema = z.object({
-  operatorWallet: stellarAddressSchema.optional()
+  operatorWallet: stellarAddressSchema.optional(),
+  signedXdr: z.string().min(10).optional(),
+  simulationMode: z.boolean().optional()
 });
 
 const riskUpdateSchema = z.object({
@@ -774,14 +781,92 @@ Provide a professional, realistic corporate credit risk summary including a cred
     }
   });
 
-  // API Route: Repay Invoice
-  app.post("/api/invoices/:id/repay", requireAuth, (req, res) => {
+  // API Route: Calculate Invoice Settlement & Entitlements (Authoritative)
+  app.get("/api/invoices/:id/settlement-calculation", (req, res) => {
+    try {
+      const { id } = req.params;
+      const targetInvoice = db.getInvoices().find(inv => inv.id === id);
+      if (!targetInvoice) {
+        return res.status(404).json({ error: `Invoice #${id} not found.` });
+      }
+
+      const allInvestments = db.getInvestments();
+      const settlementCalc = calculateInvoiceSettlement(targetInvoice, allInvestments);
+      const existingSettlement = db.getSettlementRecordByInvoice(id);
+
+      res.json({
+        invoice: targetInvoice,
+        calculation: settlementCalc,
+        settlementRecord: existingSettlement || null
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to calculate invoice settlement", details: err.message });
+    }
+  });
+
+  // API Route: Prepare Stellar Testnet Repayment Transaction
+  app.post("/api/invoices/:id/prepare-repayment", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const parseResult = repayPrepareSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          error: "Invalid repayment preparation parameters", 
+          details: parseResult.error.issues 
+        });
+      }
+      const { debtorWallet } = parseResult.data;
+
+      const targetInvoice = db.getInvoices().find(inv => inv.id === id);
+      if (!targetInvoice) {
+        return res.status(404).json({ error: `Invoice #${id} not found.` });
+      }
+
+      // Idempotency: cannot repay already settled invoice
+      if (targetInvoice.status === 'Paid' || targetInvoice.settlementStatus === 'Settled') {
+        return res.status(400).json({ error: `Invoice #${id} is already settled and fully paid.` });
+      }
+
+      // Authoritative calculation
+      const allInvestments = db.getInvestments();
+      const settlementCalc = calculateInvoiceSettlement(targetInvoice, allInvestments);
+
+      // Build unsigned Stellar Testnet transaction
+      const prepResult = await stellarNetworkService.prepareRepaymentTransaction(
+        debtorWallet.trim(),
+        id,
+        settlementCalc.invoiceAmount
+      );
+
+      // Mark settlement state as RepaymentPending
+      db.updateInvoiceSettlementStatus(id, 'RepaymentPending');
+      io.emit("invoice_updated", { type: "settlement_pending", invoiceId: id });
+
+      res.json({
+        ...prepResult,
+        invoiceId: id,
+        partnerName: targetInvoice.partnerName,
+        amountDue: settlementCalc.invoiceAmount,
+        settlementCalculation: settlementCalc
+      });
+    } catch (err: any) {
+      console.error("Error preparing invoice repayment:", err);
+      res.status(400).json({ 
+        error: err?.message || "Failed to prepare repayment transaction", 
+        details: String(err) 
+      });
+    }
+  });
+
+  // API Route: Repay Invoice & Settle Investor Positions
+  app.post("/api/invoices/:id/repay", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const parseResult = repaySchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({ error: "Invalid repayment parameters", details: parseResult.error.issues });
       }
+      const { signedXdr, simulationMode } = parseResult.data;
       const operatorWallet = parseResult.data.operatorWallet || STELLAR_DEMO_KEYS.MAIN_USER;
 
       const invoices = db.getInvoices();
@@ -790,36 +875,147 @@ Provide a professional, realistic corporate credit risk summary including a cred
         return res.status(404).json({ error: `Invoice #${id} not found.` });
       }
 
-      db.repayInvoice(id);
+      // Idempotency check: Guard against double settlement
+      if (targetInvoice.status === 'Paid' || targetInvoice.settlementStatus === 'Settled') {
+        const existingSettlement = db.getSettlementRecordByInvoice(id);
+        return res.status(409).json({ 
+          error: `Double settlement prevented: Invoice #${id} is already settled.`,
+          settlementRecord: existingSettlement
+        });
+      }
+
+      // Authoritative server-side calculations
+      const allInvestments = db.getInvestments();
+      const settlementCalc = calculateInvoiceSettlement(targetInvoice, allInvestments);
+
+      let txHash: string;
+      let ledger: number | undefined;
+      let explorerUrl: string | undefined;
+      let isSimulated = false;
+
+      // Handle Genuine Stellar On-Chain Submission vs Safe Prototype Mode
+      if (signedXdr && !simulationMode) {
+        // Submit real user-signed transaction to Stellar Horizon Testnet
+        db.updateInvoiceSettlementStatus(id, 'RepaymentSubmitted');
+        try {
+          const submission = await stellarNetworkService.submitTransaction(signedXdr.trim());
+          txHash = submission.hash;
+          ledger = submission.ledger;
+          explorerUrl = submission.explorerUrl;
+          isSimulated = false;
+        } catch (subErr: any) {
+          db.updateInvoiceSettlementStatus(id, 'Failed');
+          return res.status(502).json({
+            error: "Failed to submit settlement transaction to Stellar Testnet",
+            details: subErr?.message || String(subErr)
+          });
+        }
+      } else {
+        // Fallback / simulation mode explicitly acknowledged as prototype test
+        txHash = generateSimTxHash();
+        explorerUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+        isSimulated = true;
+      }
+
+      // Distribute entitlements to all investors
+      const settledEntitlements: InvestorEntitlement[] = settlementCalc.entitlements.map(ent => ({
+        ...ent,
+        distributionStatus: 'Settled',
+        distributedAmount: ent.totalEntitlement,
+        distributedAt: new Date().toISOString()
+      }));
+
+      // Create permanent settlement record
+      const settlementId = `SETTLE-${id}-${Date.now()}`;
+      const settlementRecord: SettlementRecord = {
+        id: settlementId,
+        invoiceId: id,
+        debtorWallet: operatorWallet,
+        amountDue: settlementCalc.invoiceAmount,
+        totalDistributed: settlementCalc.totalDistributionObligation,
+        status: 'Settled',
+        network: 'testnet',
+        stellarTxHash: txHash,
+        ledger,
+        explorerUrl,
+        entitlements: settledEntitlements,
+        createdAt: new Date().toISOString(),
+        submittedAt: new Date().toISOString(),
+        settledAt: new Date().toISOString()
+      };
+      db.createSettlementRecord(settlementRecord);
+
+      // Transition invoice and investments atomically in DB
+      db.repayInvoice(id, txHash);
 
       // Create activity
       const activityId = `act-${Date.now()}`;
       const activity = {
         id: activityId,
-        title: `Repayment of #${id} Settled`,
+        title: `Settlement Complete: #${id}`,
         timestamp: 'Just now',
         amount: `$${targetInvoice.amount.toLocaleString()}`,
         type: 'repayment' as const
       };
       db.addActivity(activity);
 
-      // Create audit entry
+      // Create granular audit entry with clear provenance
       const auditId = `trail-${Date.now()}`;
+      const auditDetails = isSimulated
+        ? `Invoice #${id} settled (simulation mode). Repayment of $${targetInvoice.amount.toLocaleString()} received. Distributed $${settlementCalc.totalDistributionObligation.toLocaleString()} across ${settledEntitlements.length} investor positions.`
+        : `On-chain repayment confirmed on Stellar Testnet (ledger ${ledger || 'confirmed'}). Repayment of $${targetInvoice.amount.toLocaleString()} settled. Distributed $${settlementCalc.totalDistributionObligation.toLocaleString()} to ${settledEntitlements.length} investor positions.`;
+
       const auditEntry = {
         id: auditId,
         timestamp: new Date().toISOString(),
         eventId: id,
         eventName: targetInvoice.partnerName,
         actionType: 'Settlement' as const,
-        details: `Full mature settlement complete. Deposited $${targetInvoice.amount.toLocaleString()} into ledger contract. Closed corresponding asset trustline.`,
-        txHash: generateSimTxHash(),
-        operatorWallet: operatorWallet
+        details: auditDetails,
+        txHash,
+        isSimulated,
+        operatorWallet
       };
       db.addAuditEntry(auditEntry);
-      io.emit("invoice_updated", { type: "repay", invoiceId: id });
-      res.json({ success: true, activity, auditEntry });
+
+      // Emit real-time updates
+      io.emit("invoice_updated", { type: "repay", invoiceId: id, settlementRecord });
+      io.emit("settlement_completed", settlementRecord);
+
+      res.json({ 
+        success: true, 
+        settlementRecord,
+        activity, 
+        auditEntry,
+        calculation: settlementCalc
+      });
     } catch (err: any) {
-      res.status(500).json({ error: "Failed to repay invoice", details: err.message });
+      console.error("Repayment settlement failure:", err);
+      res.status(500).json({ error: "Failed to repay invoice and execute settlement", details: err.message });
+    }
+  });
+
+  // API Route: Get all settlement history records
+  app.get("/api/settlements", (req, res) => {
+    try {
+      const records = db.getSettlementRecords();
+      res.json(records);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retrieve settlement records", details: err.message });
+    }
+  });
+
+  // API Route: Get single settlement by invoice ID
+  app.get("/api/settlements/invoice/:invoiceId", (req, res) => {
+    try {
+      const { invoiceId } = req.params;
+      const record = db.getSettlementRecordByInvoice(invoiceId);
+      if (!record) {
+        return res.status(404).json({ error: `No settlement record found for invoice #${invoiceId}.` });
+      }
+      res.json(record);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retrieve settlement record", details: err.message });
     }
   });
 

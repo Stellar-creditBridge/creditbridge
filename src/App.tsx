@@ -1106,21 +1106,38 @@ export default function App() {
                               <div className="pt-1.5 border-t border-dashed border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-y-1 text-[8px] font-mono text-zinc-400 dark:text-zinc-500">
                                 <div className="flex items-center gap-1">
                                   <Fingerprint className="w-2.5 h-2.5 shrink-0" />
-                                  <span className="px-1 py-0.2 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border border-zinc-200 dark:border-zinc-700 uppercase text-[7px] font-bold">
-                                    Simulated TX:
+                                  <span className={`px-1 py-0.2 uppercase text-[7px] font-bold border ${
+                                    entry.isSimulated === false
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300'
+                                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border-zinc-200 dark:border-zinc-700'
+                                  }`}>
+                                    {entry.isSimulated === false ? 'Testnet TX:' : 'Simulated TX:'}
                                   </span>
                                   {entry.txHash ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(entry.txHash || '');
-                                        showToast("Simulated transaction hash copied!", "info");
-                                      }}
-                                      className="hover:text-black dark:hover:text-white underline cursor-pointer truncate max-w-[100px] sm:max-w-none text-left"
-                                      title="Prototype simulated hash (real on-chain submission activates in later checkpoint)"
-                                    >
-                                      {entry.txHash.substring(0, 8)}...{entry.txHash.substring(56)}
-                                    </button>
+                                    entry.isSimulated === false ? (
+                                      <a
+                                        href={getStellarExplorerUrl('tx', entry.txHash)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-0.5 truncate max-w-[120px] sm:max-w-none text-left"
+                                        title="View genuine transaction on Stellar Expert Testnet Explorer"
+                                      >
+                                        <span>{entry.txHash.substring(0, 8)}...{entry.txHash.substring(Math.max(0, entry.txHash.length - 6))}</span>
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(entry.txHash || '');
+                                          showToast("Simulated transaction hash copied!", "info");
+                                        }}
+                                        className="hover:text-black dark:hover:text-white underline cursor-pointer truncate max-w-[100px] sm:max-w-none text-left"
+                                        title="Prototype simulated hash"
+                                      >
+                                        {entry.txHash.substring(0, 8)}...{entry.txHash.substring(Math.max(0, entry.txHash.length - 6))}
+                                      </button>
+                                    )
                                   ) : (
                                     <span>N/A</span>
                                   )}

@@ -112,3 +112,82 @@ export function calculatePortfolioSummary(investments: (Investment | InvestmentW
     settledPositionsCount
   };
 }
+
+/**
+ * Server-authoritative calculation of settlement obligations and investor entitlements
+ * for a fully funded or due receivable.
+ * 
+ * Rules:
+ * - Uses persisted investment records as the single source of truth.
+ * - Does NOT trust any client-supplied entitlement or yield values.
+ * - Uses cent-accurate rounding for all monetary values.
+ */
+export function calculateInvoiceSettlement(
+  invoice: { id: string; partnerName: string; amount: number; annualReturn: number; daysRemaining: number },
+  investments: Investment[]
+): {
+  invoiceId: string;
+  partnerName: string;
+  invoiceAmount: number;
+  totalPrincipalAllocated: number;
+  totalYieldObligation: number;
+  totalDistributionObligation: number;
+  capturedApr: number;
+  tenorDays: number;
+  entitlements: Array<{
+    investmentId: string;
+    investorWallet: string;
+    principal: number;
+    capturedApr: number;
+    expectedYield: number;
+    totalEntitlement: number;
+    ownershipPercentage: number;
+    distributionStatus: 'PendingDistribution' | 'Settled' | 'Failed';
+  }>;
+  calculatedAt: string;
+} {
+  const tenorDays = Math.max(1, Math.round(invoice.daysRemaining || 30));
+  const relatedInvestments = investments.filter(inv => inv.invoiceId === invoice.id);
+
+  let totalPrincipal = 0;
+  let totalYield = 0;
+  let totalEntitlementSum = 0;
+
+  const entitlements = relatedInvestments.map(pos => {
+    const principal = roundCurrency(pos.amount);
+    const apr = pos.capturedApr || invoice.annualReturn;
+    // Server recalculates yield deterministically using cent-precision
+    const yieldAmount = calculateExpectedYield(principal, apr, tenorDays);
+    const entitlement = calculateExpectedReturn(principal, yieldAmount);
+    const ownership = calculateOwnershipPercentage(principal, invoice.amount);
+
+    totalPrincipal += principal;
+    totalYield += yieldAmount;
+    totalEntitlementSum += entitlement;
+
+    return {
+      investmentId: pos.id,
+      investorWallet: pos.investorWallet,
+      principal,
+      capturedApr: apr,
+      expectedYield: yieldAmount,
+      totalEntitlement: entitlement,
+      ownershipPercentage: ownership,
+      distributionStatus: (pos.status === 'Settled' ? 'Settled' : 'PendingDistribution') as 'PendingDistribution' | 'Settled' | 'Failed'
+    };
+  });
+
+  return {
+    invoiceId: invoice.id,
+    partnerName: invoice.partnerName,
+    invoiceAmount: roundCurrency(invoice.amount),
+    totalPrincipalAllocated: roundCurrency(totalPrincipal),
+    totalYieldObligation: roundCurrency(totalYield),
+    totalDistributionObligation: roundCurrency(totalEntitlementSum),
+    capturedApr: invoice.annualReturn,
+    tenorDays,
+    entitlements,
+    calculatedAt: new Date().toISOString()
+  };
+}
+

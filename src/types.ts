@@ -11,6 +11,8 @@ export interface Invoice {
   targetAmount: number;
   daysRemaining: number;
   status: 'Funded' | 'Pending' | 'Due Soon' | 'Paid';
+  settlementStatus?: 'NotDue' | 'RepaymentPending' | 'RepaymentSubmitted' | 'Settling' | 'Settled' | 'Failed';
+  settlementTxHash?: string;
   risk: 'Low Risk' | 'Moderate' | 'Stable';
   creatorWallet: StellarPublicKey;
 }
@@ -170,3 +172,76 @@ export interface AccountFundingStatus {
   address: string;
   network: StellarNetworkId;
 }
+
+// --- Invoice Repayment, Settlement & Distribution Lifecycle Types ---
+
+export type InvoiceSettlementState = 
+  | 'NotDue'
+  | 'RepaymentPending'
+  | 'RepaymentSubmitted'
+  | 'Settling'
+  | 'Settled'
+  | 'Failed';
+
+export type DistributionStatus = 
+  | 'PendingDistribution' 
+  | 'Settled' 
+  | 'Failed';
+
+export interface InvestorEntitlement {
+  investmentId: string;
+  investorWallet: StellarPublicKey;
+  principal: number; // in USD cents-accurate
+  capturedApr: number; // locked APR %
+  expectedYield: number; // in USD
+  totalEntitlement: number; // principal + expectedYield
+  ownershipPercentage: number;
+  distributionStatus: DistributionStatus;
+  distributedAmount?: number;
+  distributedAt?: string;
+}
+
+export interface SettlementCalculation {
+  invoiceId: string;
+  partnerName: string;
+  invoiceAmount: number;
+  totalPrincipalAllocated: number;
+  totalYieldObligation: number;
+  totalDistributionObligation: number;
+  capturedApr: number;
+  tenorDays: number;
+  entitlements: InvestorEntitlement[];
+  calculatedAt: string;
+}
+
+export interface SettlementRecord {
+  id: string; // e.g. "SETTLE-CB-8890-178900"
+  invoiceId: string;
+  debtorWallet: StellarPublicKey;
+  amountDue: number;
+  totalDistributed: number;
+  status: InvoiceSettlementState;
+  network: StellarNetworkId;
+  stellarTxHash?: string;
+  ledger?: number;
+  explorerUrl?: string;
+  entitlements: InvestorEntitlement[];
+  createdAt: string;
+  submittedAt?: string;
+  settledAt?: string;
+  failureReason?: string;
+}
+
+export interface RepaymentPreparationResponse {
+  invoiceId: string;
+  partnerName: string;
+  amountDue: number;
+  unsignedXdr: string;
+  network: StellarNetworkId;
+  networkPassphrase: string;
+  sourceAccount: string;
+  sequence: string;
+  baseFee: number;
+  settlementCalculation: SettlementCalculation;
+}
+

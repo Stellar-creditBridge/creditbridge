@@ -352,6 +352,86 @@ class StellarNetworkService {
   }
 
   /**
+   * Prepares a non-custodial testnet repayment settlement transaction for a financed invoice.
+   * 
+   * Uses safe `manageData` operation with invoice settlement metadata:
+   * Key: `CB_REPAY`
+   * Value: `INV:<id>:AMT:<amount>`
+   * Memo: `CB-SETTLE <id>`
+   * 
+   * This anchors the repayment authorization cryptographically on Stellar Testnet without
+   * requiring custodial key control or moving production assets.
+   */
+  public async prepareRepaymentTransaction(
+    debtorAddress: string,
+    invoiceId: string,
+    amountDue: number
+  ): Promise<{
+    unsignedXdr: string;
+    network: StellarNetworkId;
+    networkPassphrase: string;
+    sourceAccount: string;
+    sequence: string;
+    baseFee: number;
+    operationType: string;
+    memo: string;
+  }> {
+    if (this.networkId !== 'testnet') {
+      throw new Error('Settlement transactions are strictly restricted to Stellar Testnet.');
+    }
+
+    const funding = await this.getAccountFundingStatus(debtorAddress);
+    if (!funding.isFunded) {
+      throw new Error(
+        `Borrower account ${debtorAddress} is not funded on Stellar Testnet. Please fund the account with Testnet XLM via Friendbot before signing.`
+      );
+    }
+
+    const account = await this.server.loadAccount(debtorAddress);
+
+    let fee = '100';
+    try {
+      const feeStats = await this.server.feeStats();
+      if (feeStats && feeStats.last_ledger_base_fee) {
+        fee = String(Math.max(100, Number(feeStats.last_ledger_base_fee)));
+      }
+    } catch {
+      fee = '100';
+    }
+
+    const { TransactionBuilder, Operation, Memo } = await import('@stellar/stellar-sdk');
+
+    // Encode settlement metadata
+    const settlementTag = `INV:${invoiceId}:AMT:${Math.round(amountDue)}`;
+    const memoText = `CB-SETTLE ${invoiceId}`.slice(0, 28);
+
+    const tx = new TransactionBuilder(account, {
+      fee,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        Operation.manageData({
+          name: 'CB_REPAY',
+          value: Buffer.from(settlementTag),
+        })
+      )
+      .addMemo(Memo.text(memoText))
+      .setTimeout(300) // 5 minute validity window
+      .build();
+
+    return {
+      unsignedXdr: tx.toXDR(),
+      network: this.networkId,
+      networkPassphrase: this.networkPassphrase,
+      sourceAccount: debtorAddress,
+      sequence: account.sequenceNumber(),
+      baseFee: Number(fee),
+      operationType: 'manageData (Settlement Proof)',
+      memo: memoText,
+    };
+  }
+
+  /**
    * Submits a user-signed transaction envelope to Stellar Horizon.
    */
   public async submitTransaction(signedEnvelopeXdr: string): Promise<{
