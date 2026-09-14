@@ -1,4 +1,4 @@
-import { Investment, InvestmentWithInvoice, InvestorPortfolioSummary } from '../types';
+import { Investment, InvestmentWithInvoice, InvestorPortfolioSummary, SettlementCalculation } from '../types';
 
 /**
  * INVESTMENT ACCOUNTING ENGINE
@@ -126,27 +126,7 @@ export function calculatePortfolioSummary(investments: (Investment | InvestmentW
 export function calculateInvoiceSettlement(
   invoice: { id: string; partnerName: string; amount: number; annualReturn: number; daysRemaining: number },
   investments: Investment[]
-): {
-  invoiceId: string;
-  partnerName: string;
-  invoiceAmount: number;
-  totalPrincipalAllocated: number;
-  totalYieldObligation: number;
-  totalDistributionObligation: number;
-  capturedApr: number;
-  tenorDays: number;
-  entitlements: Array<{
-    investmentId: string;
-    investorWallet: string;
-    principal: number;
-    capturedApr: number;
-    expectedYield: number;
-    totalEntitlement: number;
-    ownershipPercentage: number;
-    distributionStatus: 'PendingDistribution' | 'Settled' | 'Failed';
-  }>;
-  calculatedAt: string;
-} {
+): SettlementCalculation {
   const tenorDays = Math.max(1, Math.round(invoice.daysRemaining || 30));
   const relatedInvestments = investments.filter(inv => inv.invoiceId === invoice.id && inv.status === 'Active');
 
@@ -186,6 +166,7 @@ export function calculateInvoiceSettlement(
     totalYieldObligation: roundCurrency(totalYield),
     totalDistributionObligation: roundCurrency(totalEntitlementSum),
     activeInvestorCount: relatedInvestments.length,
+    netPlatformSurplus: roundCurrency(Math.max(0, invoice.amount - totalEntitlementSum)),
     capturedApr: invoice.annualReturn,
     tenorDays,
     entitlements,

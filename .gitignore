@@ -7,4 +7,5 @@ coverage/
 .env*
 !.env.example
 creditbridge.db
+creditbridge_test_*.db*
 creditbridge_fallback.json

@@ -4,9 +4,9 @@ import jwt from "jsonwebtoken";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import * as db from "./db";
-import { STELLAR_DEMO_KEYS } from "./src/utils/stellar";
-import { stellarNetworkService } from "./src/services/stellarNetworkService";
+import * as db from "../db";
+import { STELLAR_DEMO_KEYS } from "./utils/stellar";
+import { stellarNetworkService } from "./services/stellarNetworkService";
 import { 
   roundCurrency, 
   calculateExpectedYield, 
@@ -14,7 +14,7 @@ import {
   calculateOwnershipPercentage, 
   calculatePortfolioSummary,
   calculateInvoiceSettlement 
-} from "./src/utils/investmentAccounting";
+} from "./utils/investmentAccounting";
 
 // Stellar Public Key Zod Validator
 const stellarAddressSchema = z.string().refine((val) => {
@@ -142,7 +142,7 @@ export function createExpressApp(): express.Application {
         title: `Invoice #${newInvoice.id} Tokenized`,
         timestamp: new Date().toISOString(),
         amount: `$${newInvoice.amount.toLocaleString()}`,
-        type: 'tokenization'
+        type: 'approval'
       });
 
       db.createAuditTrail({
@@ -336,16 +336,17 @@ export function createExpressApp(): express.Application {
       let isSimulated = false;
 
       if (signedXdr && !simulationMode) {
-        const submitResult = await stellarNetworkService.submitSignedTransaction(signedXdr);
-        if (!submitResult.successful) {
+        try {
+          const submitResult = await stellarNetworkService.submitTransaction(signedXdr);
+          txHash = submitResult.hash;
+          confirmedLedger = submitResult.ledger;
+          explorerUrl = submitResult.explorerUrl;
+          isSimulated = false;
+        } catch (subErr: any) {
           return res.status(400).json({ 
-            error: `Stellar Testnet settlement submission rejected: ${submitResult.error}` 
+            error: `Stellar Testnet settlement submission rejected: ${subErr?.message || String(subErr)}` 
           });
         }
-        txHash = submitResult.hash;
-        confirmedLedger = submitResult.ledger;
-        explorerUrl = submitResult.explorerUrl;
-        isSimulated = false;
       } else {
         txHash = 'SIM-' + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join('');
         isSimulated = true;

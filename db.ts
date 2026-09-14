@@ -362,8 +362,26 @@ export function addInvoice(invoice: Invoice) {
   if (isSqlite) {
     try {
       const stmt = sqlDb.prepare(`
-        INSERT OR REPLACE INTO invoices (id, partnerName, industry, amount, annualReturn, dueDate, fundingProgress, targetAmount, daysRemaining, status, risk, creatorWallet, settlementStatus, settlementTxHash)
+        INSERT INTO invoices (
+          id, partnerName, industry, amount, annualReturn, dueDate,
+          fundingProgress, targetAmount, daysRemaining, status, risk,
+          creatorWallet, settlementStatus, settlementTxHash
+        )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          partnerName = excluded.partnerName,
+          industry = excluded.industry,
+          amount = excluded.amount,
+          annualReturn = excluded.annualReturn,
+          dueDate = excluded.dueDate,
+          fundingProgress = excluded.fundingProgress,
+          targetAmount = excluded.targetAmount,
+          daysRemaining = excluded.daysRemaining,
+          status = excluded.status,
+          risk = excluded.risk,
+          creatorWallet = excluded.creatorWallet,
+          settlementStatus = excluded.settlementStatus,
+          settlementTxHash = excluded.settlementTxHash
       `);
       stmt.run(
         invoice.id,

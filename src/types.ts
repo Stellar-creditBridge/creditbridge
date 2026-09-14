@@ -210,6 +210,8 @@ export interface SettlementCalculation {
   totalDistributionObligation: number;
   capturedApr: number;
   tenorDays: number;
+  activeInvestorCount: number;
+  netPlatformSurplus: number;
   entitlements: InvestorEntitlement[];
   calculatedAt: string;
 }
