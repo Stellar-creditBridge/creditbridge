@@ -10,7 +10,7 @@ let isSqlite = false;
 let sqlDb: any = null;
 
 try {
-  const dbPath = path.join(process.cwd(), 'creditbridge.db');
+  const dbPath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), 'creditbridge.db');
   sqlDb = new DatabaseConstructor(dbPath);
   isSqlite = true;
   console.log("Database manager: loaded better-sqlite3 successfully.");
@@ -19,7 +19,7 @@ try {
   isSqlite = false;
 }
 
-const jsonPath = path.join(process.cwd(), 'creditbridge_fallback.json');
+const jsonPath = process.env.JSON_FALLBACK_PATH || path.join(process.cwd(), 'creditbridge_fallback.json');
 let jsonData: {
   users: Record<string, any>;
   invoices: Invoice[];
@@ -115,7 +115,9 @@ if (isSqlite && sqlDb) {
         daysRemaining INTEGER NOT NULL,
         status TEXT NOT NULL,
         risk TEXT NOT NULL,
-        creatorWallet TEXT NOT NULL
+        creatorWallet TEXT NOT NULL,
+        settlementStatus TEXT DEFAULT 'NotDue',
+        settlementTxHash TEXT
       );
 
       CREATE TABLE IF NOT EXISTS investments (
@@ -195,8 +197,8 @@ if (isSqlite && sqlDb) {
 
       // Seed invoices
       const insertInvoice = sqlDb.prepare(`
-        INSERT INTO invoices (id, partnerName, industry, amount, annualReturn, dueDate, fundingProgress, targetAmount, daysRemaining, status, risk, creatorWallet)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO invoices (id, partnerName, industry, amount, annualReturn, dueDate, fundingProgress, targetAmount, daysRemaining, status, risk, creatorWallet, settlementStatus, settlementTxHash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const inv of INITIAL_INVOICES) {
         insertInvoice.run(
@@ -211,7 +213,9 @@ if (isSqlite && sqlDb) {
           inv.daysRemaining,
           inv.status,
           inv.risk,
-          inv.creatorWallet
+          inv.creatorWallet,
+          inv.settlementStatus || 'NotDue',
+          inv.settlementTxHash || null
         );
       }
 
@@ -358,8 +362,8 @@ export function addInvoice(invoice: Invoice) {
   if (isSqlite) {
     try {
       const stmt = sqlDb.prepare(`
-        INSERT INTO invoices (id, partnerName, industry, amount, annualReturn, dueDate, fundingProgress, targetAmount, daysRemaining, status, risk, creatorWallet)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO invoices (id, partnerName, industry, amount, annualReturn, dueDate, fundingProgress, targetAmount, daysRemaining, status, risk, creatorWallet, settlementStatus, settlementTxHash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run(
         invoice.id,
@@ -373,13 +377,20 @@ export function addInvoice(invoice: Invoice) {
         invoice.daysRemaining,
         invoice.status,
         invoice.risk,
-        invoice.creatorWallet
+        invoice.creatorWallet,
+        invoice.settlementStatus || 'NotDue',
+        invoice.settlementTxHash || null
       );
     } catch (err) {
       console.error("SQL addInvoice error", err);
     }
   } else {
-    jsonData.invoices.unshift(invoice);
+    const existingIndex = jsonData.invoices.findIndex(i => i.id === invoice.id);
+    if (existingIndex >= 0) {
+      jsonData.invoices[existingIndex] = invoice;
+    } else {
+      jsonData.invoices.unshift(invoice);
+    }
     saveJson();
   }
 }
@@ -404,7 +415,7 @@ export function investInvoice(id: string, progress: number, status: string) {
   }
 }
 
-export function repayInvoice(id: string, settlementTxHash?: string) {
+export function repayInvoice(id: string, settlementTxHash?: string): boolean {
   if (isSqlite) {
     try {
       const tx = sqlDb.transaction(() => {
@@ -422,8 +433,10 @@ export function repayInvoice(id: string, settlementTxHash?: string) {
         `).run(id);
       });
       tx();
+      return true;
     } catch (err) {
       console.error("SQL repayInvoice error", err);
+      return false;
     }
   } else {
     const inv = jsonData.invoices.find(i => i.id === id);
@@ -443,6 +456,7 @@ export function repayInvoice(id: string, settlementTxHash?: string) {
       });
     }
     saveJson();
+    return true;
   }
 }
 
@@ -678,11 +692,11 @@ export function getUserSettings(walletAddress: string) {
           notification_email: 'anichrisa@gmail.com'
         };
       }
-      // Convert 1/0 from SQLite to boolean
+      // Return user settings with both boolean and numeric representation
       return {
         wallet_address: user.wallet_address,
         theme: user.theme,
-        risk_alerts_enabled: user.risk_alerts_enabled === 1,
+        risk_alerts_enabled: user.risk_alerts_enabled,
         notification_email: user.notification_email
       };
     } catch (err) {
@@ -713,8 +727,13 @@ export function updateUserSettings(walletAddress: string, theme: string, riskAle
     try {
       const numericAlerts = riskAlertsEnabled ? 1 : 0;
       sqlDb.prepare(`
-        UPDATE users SET theme = ?, risk_alerts_enabled = ?, notification_email = ? WHERE wallet_address = ?
-      `).run(theme, numericAlerts, notificationEmail, walletAddress);
+        INSERT INTO users (wallet_address, theme, risk_alerts_enabled, notification_email)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(wallet_address) DO UPDATE SET
+          theme = excluded.theme,
+          risk_alerts_enabled = excluded.risk_alerts_enabled,
+          notification_email = excluded.notification_email
+      `).run(walletAddress, theme, numericAlerts, notificationEmail);
     } catch (err) {
       console.error("SQL updateUserSettings error", err);
     }
@@ -943,3 +962,40 @@ export function updateInvoiceSettlementStatus(
     }
   }
 }
+
+// Aliases for test convenience and backward compatibility
+export const createInvoice = addInvoice;
+export const createActivity = addActivity;
+export const createAuditTrail = addAuditEntry;
+export const getInvestmentsByUser = getInvestmentsByInvestor;
+export const getSettlementsByInvoice = (invoiceId: string): SettlementRecord[] => {
+  const rec = getSettlementRecordByInvoice(invoiceId);
+  return rec ? [rec] : [];
+};
+export const getInvoiceById = (id: string): Invoice | undefined => {
+  const invoices = getInvoices();
+  return invoices.find(inv => inv.id === id);
+};
+export const investInInvoice = (
+  investment: Investment,
+  newProgress: number,
+  newStatus: string
+): boolean => {
+  const act = {
+    id: `act-${Date.now()}`,
+    title: `Allocated $${investment.amount.toLocaleString()} to #${investment.invoiceId}`,
+    timestamp: 'Just now',
+    amount: `$${investment.amount.toLocaleString()}`,
+    type: 'approval' as const
+  };
+  const audit = {
+    id: `trail-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    eventId: investment.invoiceId,
+    eventName: 'Investment Position Allocation',
+    actionType: 'Asset Funding' as const,
+    details: `Allocation: Position ${investment.id} created for $${investment.amount.toLocaleString()} USD (${investment.capturedApr}% APR).`,
+    operatorWallet: investment.investorWallet
+  };
+  return recordInvestment(investment, newProgress, newStatus, act, audit);
+};

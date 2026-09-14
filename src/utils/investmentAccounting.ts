@@ -39,8 +39,9 @@ export function roundCurrency(amount: number): number {
  * @returns Projected interest yield in USD, rounded to 2 decimal places.
  */
 export function calculateExpectedYield(principal: number, apr: number, durationDays: number): number {
-  if (principal <= 0 || apr <= 0) return 0;
-  const days = Math.max(1, Math.round(durationDays));
+  if (principal <= 0 || apr <= 0 || durationDays <= 0) return 0;
+  const days = Math.round(durationDays);
+  if (days <= 0) return 0;
   const rawYield = principal * (apr / 100) * (days / 365);
   return roundCurrency(rawYield);
 }
@@ -147,7 +148,7 @@ export function calculateInvoiceSettlement(
   calculatedAt: string;
 } {
   const tenorDays = Math.max(1, Math.round(invoice.daysRemaining || 30));
-  const relatedInvestments = investments.filter(inv => inv.invoiceId === invoice.id);
+  const relatedInvestments = investments.filter(inv => inv.invoiceId === invoice.id && inv.status === 'Active');
 
   let totalPrincipal = 0;
   let totalYield = 0;
@@ -173,7 +174,7 @@ export function calculateInvoiceSettlement(
       expectedYield: yieldAmount,
       totalEntitlement: entitlement,
       ownershipPercentage: ownership,
-      distributionStatus: (pos.status === 'Settled' ? 'Settled' : 'PendingDistribution') as 'PendingDistribution' | 'Settled' | 'Failed'
+      distributionStatus: 'PendingDistribution' as const
     };
   });
 
@@ -184,6 +185,7 @@ export function calculateInvoiceSettlement(
     totalPrincipalAllocated: roundCurrency(totalPrincipal),
     totalYieldObligation: roundCurrency(totalYield),
     totalDistributionObligation: roundCurrency(totalEntitlementSum),
+    activeInvestorCount: relatedInvestments.length,
     capturedApr: invoice.annualReturn,
     tenorDays,
     entitlements,
