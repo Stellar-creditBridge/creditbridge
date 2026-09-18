@@ -1,8 +1,9 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, RotateCcw, RefreshCw } from 'lucide-react';
 
 interface Props {
   children?: ReactNode;
+  fallbackTitle?: string;
 }
 
 interface State {
@@ -20,34 +21,65 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    console.error('ErrorBoundary caught error:', error, errorInfo);
   }
+
+  public handleReset = () => {
+    this.setState({ hasError: false, error: undefined });
+  };
 
   public render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-[400px] flex flex-col items-center justify-center p-8 text-center border border-red-200 bg-red-50/50 rounded-lg">
-          <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-          <h2 className="text-xl font-display font-bold text-red-900 mb-2">Something went wrong</h2>
-          <p className="text-red-700 text-sm max-w-md mb-6">
-            An unexpected error occurred while rendering this component. Our engineers have been notified.
-          </p>
-          <div className="bg-white p-4 rounded text-left w-full max-w-2xl overflow-auto border border-red-100 mb-6">
-            <code className="text-xs text-red-800 font-mono whitespace-pre-wrap">
-              {this.state.error?.message}
-            </code>
+        <div id="error-boundary-fallback" className="w-full min-h-[360px] flex flex-col items-center justify-center p-8 text-center border border-black/10 bg-[#fbf9f5] my-6">
+          <div className="p-3 bg-red-100 text-red-800 rounded-none mb-4">
+            <AlertTriangle className="w-6 h-6 text-red-700" />
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700 transition-colors"
-          >
-            <RefreshCcw className="w-4 h-4" />
-            Reload Page
-          </button>
+          <span className="font-mono text-[9px] uppercase tracking-widest text-red-600 font-bold mb-1">
+            Component Exception Caught
+          </span>
+          <h2 className="text-2xl font-display font-bold italic text-black mb-2">
+            {this.props.fallbackTitle || "An unexpected error occurred"}
+          </h2>
+          <p className="text-zinc-600 text-xs max-w-md mb-5 font-sans leading-relaxed">
+            The application encountered a render issue with this module. You can attempt to restore the state or refresh the ledger view.
+          </p>
+          {this.state.error?.message && (
+            <div className="bg-white p-3.5 rounded-none text-left w-full max-w-lg overflow-auto border border-black/10 mb-6 shadow-2xs">
+              <code className="text-[11px] text-zinc-800 font-mono whitespace-pre-wrap block break-words">
+                {this.state.error.message}
+              </code>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              id="error-boundary-retry-btn"
+              onClick={this.handleReset}
+              className="flex items-center gap-2 px-4 py-2 bg-black text-white text-[10px] font-mono uppercase tracking-wider font-bold hover:bg-zinc-800 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Restore Component</span>
+            </button>
+            <button
+              id="error-boundary-reload-btn"
+              onClick={() => {
+                try {
+                  window.location.reload();
+                } catch {
+                  this.handleReset();
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 border border-black/10 bg-white text-black text-[10px] font-mono uppercase tracking-wider font-bold hover:bg-zinc-100 transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Reload Page</span>
+            </button>
+          </div>
         </div>
       );
     }
 
-    return (this as any).props.children ?? null;
+    return this.props.children ?? null;
   }
 }
+

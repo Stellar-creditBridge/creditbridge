@@ -79,6 +79,10 @@ export default function App() {
   const [auditTrail, setAuditTrail] = useState<AuditTrailEntry[]>(INITIAL_AUDIT_TRAIL);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Portfolio and ledger data loading and synchronization status
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
+  const [dataLoadError, setDataLoadError] = useState<string | null>(null);
+
   // Settings & Risk Alerts States
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [riskAlertsEnabled, setRiskAlertsEnabled] = useState(false);
@@ -120,33 +124,53 @@ export default function App() {
   }, []);
 
   // Load database tables reactively
-  const fetchAllData = async () => {
+  const fetchAllData = async (isInitial = false) => {
+    if (isInitial) {
+      setIsLoadingData(true);
+    }
+    setDataLoadError(null);
+    let hadError = false;
+
     try {
-      const invoicesRes = await apiFetch("/api/invoices");
+      const [invoicesRes, investmentsRes, activitiesRes, auditRes] = await Promise.all([
+        apiFetch("/api/invoices"),
+        apiFetch("/api/investments"),
+        apiFetch("/api/activities"),
+        apiFetch("/api/audit-trail")
+      ]);
+
       if (invoicesRes.ok) {
         const data = await invoicesRes.json();
         setInvoices(data);
+      } else {
+        hadError = true;
       }
 
-      const investmentsRes = await apiFetch("/api/investments");
       if (investmentsRes.ok) {
         const data = await investmentsRes.json();
         setInvestments(data);
+      } else {
+        hadError = true;
       }
 
-      const activitiesRes = await apiFetch("/api/activities");
       if (activitiesRes.ok) {
         const data = await activitiesRes.json();
         setActivities(data);
       }
 
-      const auditRes = await apiFetch("/api/audit-trail");
       if (auditRes.ok) {
         const data = await auditRes.json();
         setAuditTrail(data);
       }
-    } catch (err) {
+
+      if (hadError) {
+        setDataLoadError("Some ledger endpoints returned non-success response. Displaying last verified snapshot.");
+      }
+    } catch (err: any) {
       console.warn("Could not synchronize live data with API (using cached/fallback state):", err);
+      setDataLoadError(err?.message || "Could not synchronize live portfolio data with backend services.");
+    } finally {
+      setIsLoadingData(false);
     }
   };
 
@@ -196,7 +220,7 @@ export default function App() {
       }
     }
 
-    fetchAllData();
+    fetchAllData(true);
   }, []);
 
   const saveWalletState = (newWallet: WalletState) => {
@@ -723,6 +747,9 @@ export default function App() {
                   setView={handleNavClick}
                   wallet={wallet}
                   theme={theme}
+                  isLoading={isLoadingData}
+                  loadError={dataLoadError}
+                  onRetry={() => fetchAllData(true)}
                 />
               </ErrorBoundary>
             </div>

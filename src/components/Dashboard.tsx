@@ -37,7 +37,9 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
-  Database
+  Database,
+  History,
+  Sparkles
 } from 'lucide-react';
 import { Invoice, Activity, WalletState, Investment } from '../types';
 import { exportInvoiceToPDF } from '../utils/pdfExport';
@@ -85,9 +87,25 @@ interface DashboardProps {
   setView: (view: 'landing' | 'dashboard' | 'marketplace' | 'analytics' | 'admin' | 'connect') => void;
   wallet?: WalletState;
   theme?: string;
+  isLoading?: boolean;
+  loadError?: string | null;
+  onRetry?: () => void;
 }
 
-export default function Dashboard({ invoices, investments = [], activities, onSubmitInvoice, onRepayInvoice, onUpdateRisk, setView, wallet, theme }: DashboardProps) {
+export default function Dashboard({ 
+  invoices, 
+  investments = [], 
+  activities, 
+  onSubmitInvoice, 
+  onRepayInvoice, 
+  onUpdateRisk, 
+  setView, 
+  wallet, 
+  theme,
+  isLoading = false,
+  loadError = null,
+  onRetry 
+}: DashboardProps) {
   const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
@@ -369,9 +387,15 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
   });
 
   // Calculate portfolio metrics dynamically using cent-precision accounting
+  const myInvestments = investments.filter(i => i.investorWallet === currentInvestorKey);
+  const scopeInvestments = investmentFilterScope === 'my' ? myInvestments : investments;
+  const isNewInvestor = investmentFilterScope === 'my' && myInvestments.length === 0;
+  const isInvestmentFilterEmpty = scopeInvestments.length > 0 && filteredInvestments.length === 0;
+  const isReceivablesFilterEmpty = invoices.length > 0 && filteredInvoices.length === 0;
+
   const portfolioSummary = calculatePortfolioSummary(
     investmentFilterScope === 'my' 
-      ? investments.filter(i => i.investorWallet === currentInvestorKey) 
+      ? myInvestments 
       : investments
   );
 
@@ -444,85 +468,129 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
         </button>
       </div>
 
+      {/* Global Error Banner if Portfolio Data is Temporarily Unavailable */}
+      {loadError && (
+        <div id="dashboard-load-error-banner" className="bg-red-50 border border-red-200 p-4 mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-left shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-red-900">
+                Portfolio & Ledger Data Temporarily Unavailable
+              </h4>
+              <p className="text-xs text-red-700 font-sans mt-0.5">
+                {loadError}
+              </p>
+            </div>
+          </div>
+          {onRetry && (
+            <button
+              id="dashboard-retry-btn"
+              onClick={onRetry}
+              className="bg-black hover:bg-zinc-800 text-white px-4 py-2 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Retry Sync</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        
-        {/* Total Funding */}
-        <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
-          <div className="flex justify-between items-start">
-            <div className="p-2 bg-black text-white">
-              <Building2 className="w-4 h-4" />
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12" id="metrics-grid-loading">
+          {[1, 2, 3, 4].map(idx => (
+            <div key={idx} className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4 animate-pulse">
+              <div className="flex justify-between items-start">
+                <div className="w-8 h-8 bg-zinc-200 rounded-none"></div>
+                <div className="w-16 h-3 bg-zinc-100 rounded-none"></div>
+              </div>
+              <div className="space-y-2">
+                <div className="w-28 h-2.5 bg-zinc-100 rounded-none"></div>
+                <div className="w-36 h-7 bg-zinc-200 rounded-none"></div>
+              </div>
+              <div className="w-full bg-zinc-100 h-[2px]"></div>
             </div>
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
-              +12.5% APR
-            </span>
-          </div>
-          <div>
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Total Funding Received</span>
-            <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">
-              ${totalFundingReceived.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </h3>
-          </div>
-          <div className="w-full bg-zinc-100 h-[2px] overflow-hidden mt-1">
-            <div className="bg-black h-full w-3/4" />
-          </div>
+          ))}
         </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12" id="metrics-grid">
+          {/* Total Funding */}
+          <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
+            <div className="flex justify-between items-start">
+              <div className="p-2 bg-black text-white">
+                <Building2 className="w-4 h-4" />
+              </div>
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
+                +12.5% APR
+              </span>
+            </div>
+            <div>
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Total Funding Received</span>
+              <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">
+                ${totalFundingReceived.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+            <div className="w-full bg-zinc-100 h-[2px] overflow-hidden mt-1">
+              <div className="bg-black h-full w-3/4" />
+            </div>
+          </div>
 
-        {/* Outstanding Loans */}
-        <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
-          <div className="flex justify-between items-start">
-            <div className="p-2 bg-black text-white">
-              <Clock className="w-4 h-4" />
+          {/* Outstanding Loans */}
+          <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
+            <div className="flex justify-between items-start">
+              <div className="p-2 bg-black text-white">
+                <Clock className="w-4 h-4" />
+              </div>
             </div>
+            <div>
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Outstanding Balance</span>
+              <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">
+                ${totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+            <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
+              Next due in <span className="font-bold text-black underline">4 days</span>
+            </p>
           </div>
-          <div>
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Outstanding Balance</span>
-            <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">
-              ${totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </h3>
-          </div>
-          <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
-            Next due in <span className="font-bold text-black underline">4 days</span>
-          </p>
-        </div>
 
-        {/* Available Credit */}
-        <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
-          <div className="flex justify-between items-start">
-            <div className="p-2 bg-black text-white">
-              <Award className="w-4 h-4" />
+          {/* Available Credit */}
+          <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
+            <div className="flex justify-between items-start">
+              <div className="p-2 bg-black text-white">
+                <Award className="w-4 h-4" />
+              </div>
             </div>
+            <div>
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Available Credit Line</span>
+              <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">$2,500,000.00</h3>
+            </div>
+            <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
+              Credit Score: <span className="text-black font-bold">842 (STABLE)</span>
+            </p>
           </div>
-          <div>
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Available Credit Line</span>
-            <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">$2,500,000.00</h3>
-          </div>
-          <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
-            Credit Score: <span className="text-black font-bold">842 (STABLE)</span>
-          </p>
-        </div>
 
-        {/* Pending Applications */}
-        <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
-          <div className="flex justify-between items-start">
-            <div className="p-2 bg-black text-white">
-              <Hourglass className="w-4 h-4" />
+          {/* Pending Applications */}
+          <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-4">
+            <div className="flex justify-between items-start">
+              <div className="p-2 bg-black text-white">
+                <Hourglass className="w-4 h-4" />
+              </div>
             </div>
+            <div>
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Pending Verification</span>
+              <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">
+                {pendingCount.toString().padStart(2, '0')}
+              </h3>
+            </div>
+            <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
+              Est. value <span className="font-bold text-black">${pendingValue.toLocaleString('en-US')}</span>
+            </p>
           </div>
-          <div>
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">Pending Verification</span>
-            <h3 className="text-2xl font-bold font-mono text-on-background mt-1 tracking-tight">
-              {pendingCount.toString().padStart(2, '0')}
-            </h3>
-          </div>
-          <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1">
-            Est. value <span className="font-bold text-black">${pendingValue.toLocaleString('en-US')}</span>
-          </p>
         </div>
-      </div>
+      )}
 
       {/* Relational Investment Portfolio Accounting Banner */}
-      <div className="bg-white border border-black/10 p-6 mb-12 shadow-sm">
+      <div className="bg-white border border-black/10 p-6 mb-12 shadow-sm" id="portfolio-accounting-banner">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-black/10 pb-4 mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-black text-white">
@@ -559,64 +627,134 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div className="space-y-1 text-left">
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
-              Total Capital Allocated
-            </span>
-            <h3 className="text-2xl font-bold font-mono text-black">
-              ${portfolioSummary.totalPrincipalInvested.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </h3>
-            <span className="text-[9px] font-mono text-zinc-500 block">
-              Across {portfolioSummary.activePositionsCount + portfolioSummary.settledPositionsCount} positions
-            </span>
+        {isLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 animate-pulse" id="portfolio-banner-loading">
+            {[1, 2, 3, 4].map(idx => (
+              <div key={idx} className="space-y-2 text-left">
+                <div className="h-2.5 bg-zinc-200 w-24 rounded-none"></div>
+                <div className="h-7 bg-zinc-200 w-32 rounded-none"></div>
+                <div className="h-2 bg-zinc-100 w-28 rounded-none"></div>
+              </div>
+            ))}
           </div>
-
-          <div className="space-y-1 text-left">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">
-                Projected Yield
-              </span>
-              <span className="text-[7px] font-mono px-1 py-0.2 bg-amber-100 text-amber-800 uppercase font-bold">Unearned</span>
+        ) : loadError ? (
+          <div className="p-4 bg-red-50 border border-red-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-700 shrink-0" />
+              <div>
+                <span className="font-mono text-xs font-bold uppercase tracking-wider text-red-900 block">
+                  Ledger Positions Sync Failed
+                </span>
+                <span className="text-[11px] font-sans text-red-700">
+                  {loadError}
+                </span>
+              </div>
             </div>
-            <h3 className="text-2xl font-bold font-mono text-emerald-700">
-              +${portfolioSummary.totalExpectedYield.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </h3>
-            <span className="text-[9px] font-mono text-zinc-500 block">
-              Contingent upon debtor settlement
-            </span>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="px-3 py-1.5 bg-black text-white text-[9px] font-mono uppercase tracking-wider font-bold hover:bg-zinc-800 transition-colors cursor-pointer shrink-0"
+              >
+                Retry Sync
+              </button>
+            )}
           </div>
-
-          <div className="space-y-1 text-left">
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
-              Weighted Average APR
-            </span>
-            <h3 className="text-2xl font-bold font-mono text-black">
-              {portfolioSummary.weightedAverageApr.toFixed(2)}%
-            </h3>
-            <span className="text-[9px] font-mono text-zinc-500 block">
-              Fixed at allocation time
-            </span>
-          </div>
-
-          <div className="space-y-1 text-left">
-            <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
-              Settlement Status
-            </span>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-lg font-bold font-mono text-blue-700">
-                {portfolioSummary.activePositionsCount} Active
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="space-y-1 text-left">
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
+                Total Capital Allocated
               </span>
-              <span className="text-zinc-300">•</span>
-              <span className="text-lg font-bold font-mono text-emerald-700">
-                {portfolioSummary.settledPositionsCount} Settled
+              <h3 className="text-2xl font-bold font-mono text-black">
+                ${portfolioSummary.totalPrincipalInvested.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+              <span className="text-[9px] font-mono text-zinc-500 block">
+                Across {portfolioSummary.activePositionsCount + portfolioSummary.settledPositionsCount} positions
               </span>
             </div>
-            <span className="text-[9px] font-mono text-zinc-500 block">
-              Expected Return: ${portfolioSummary.totalExpectedRepayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
+
+            <div className="space-y-1 text-left">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">
+                  Projected Yield
+                </span>
+                <span className="text-[7px] font-mono px-1 py-0.2 bg-amber-100 text-amber-800 uppercase font-bold">Unearned</span>
+              </div>
+              <h3 className="text-2xl font-bold font-mono text-emerald-700">
+                +${portfolioSummary.totalExpectedYield.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+              <span className="text-[9px] font-mono text-zinc-500 block">
+                Contingent upon debtor settlement
+              </span>
+            </div>
+
+            <div className="space-y-1 text-left">
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
+                Weighted Average APR
+              </span>
+              <h3 className="text-2xl font-bold font-mono text-black">
+                {portfolioSummary.weightedAverageApr.toFixed(2)}%
+              </h3>
+              <span className="text-[9px] font-mono text-zinc-500 block">
+                Fixed at allocation time
+              </span>
+            </div>
+
+            <div className="space-y-1 text-left">
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest block">
+                Settlement Status
+              </span>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className="text-lg font-bold font-mono text-blue-700">
+                  {portfolioSummary.activePositionsCount} Active
+                </span>
+                <span className="text-zinc-300">•</span>
+                <span className="text-lg font-bold font-mono text-emerald-700">
+                  {portfolioSummary.settledPositionsCount} Settled
+                </span>
+              </div>
+              <span className="text-[9px] font-mono text-zinc-500 block">
+                Expected Return: ${portfolioSummary.totalExpectedRepayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Informational helper for new investors with 0 positions in current wallet */}
+        {!isLoading && !loadError && isNewInvestor && (
+          <div className="mt-6 pt-4 border-t border-black/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-zinc-50 p-3.5" id="new-investor-banner-notice">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 bg-black text-white shrink-0">
+                <Coins className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-black">
+                  Your connected wallet has no active investment positions yet.
+                </p>
+                <p className="text-[11px] text-zinc-500 font-sans">
+                  Allocate capital to verified receivables in the Marketplace to lock in fixed APR yields.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setView('marketplace')}
+                className="inline-flex items-center gap-1.5 bg-black hover:bg-zinc-800 text-white px-3.5 py-1.5 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer"
+              >
+                <span>Browse Marketplace</span>
+                <ChevronRight className="w-3 h-3" />
+              </button>
+              {investments.length > 0 && (
+                <button
+                  onClick={() => setInvestmentFilterScope('all')}
+                  className="text-zinc-600 hover:text-black text-[9px] font-mono uppercase tracking-wider font-bold px-2 py-1.5 underline cursor-pointer"
+                >
+                  View All ({investments.length})
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -641,28 +779,38 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
             </div>
             
             {/* Chart Display */}
-            <div className="h-64 flex items-end justify-between gap-3 px-2 pt-6 relative border-b border-black/10">
-              {activeChartData.map((bar, idx) => (
-                <div key={idx} className="flex-1 flex flex-col justify-end h-full relative group">
-                  {/* Custom Tooltip */}
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[9px] font-mono font-bold px-2 py-1 rounded-none shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-20">
-                    ${(bar.value / 1000).toFixed(0)}k
+            {isLoading ? (
+              <div className="h-64 flex items-end justify-between gap-3 px-2 pt-6 relative border-b border-black/10 animate-pulse">
+                {[45, 60, 50, 75, 65, 85].map((val, idx) => (
+                  <div key={idx} className="flex-1 flex flex-col justify-end h-full">
+                    <div style={{ height: `${val}%` }} className="bg-zinc-200 rounded-none w-full" />
                   </div>
-                  
-                  {/* Animated bar */}
-                  <motion.div 
-                    initial={{ height: 0 }}
-                    animate={{ height: bar.height }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                    className={`rounded-none transition-colors cursor-pointer w-full ${
-                      bar.label === 'OCT' 
-                        ? 'bg-zinc-700 dark:bg-zinc-300 hover:bg-zinc-600 dark:hover:bg-zinc-100' 
-                        : 'bg-zinc-300 dark:bg-zinc-600 hover:bg-zinc-400 dark:hover:bg-zinc-500'
-                    }`}
-                  />
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-64 flex items-end justify-between gap-3 px-2 pt-6 relative border-b border-black/10">
+                {activeChartData.map((bar, idx) => (
+                  <div key={idx} className="flex-1 flex flex-col justify-end h-full relative group">
+                    {/* Custom Tooltip */}
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[9px] font-mono font-bold px-2 py-1 rounded-none shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-20">
+                      ${(bar.value / 1000).toFixed(0)}k
+                    </div>
+                    
+                    {/* Animated bar */}
+                    <motion.div 
+                      initial={{ height: 0 }}
+                      animate={{ height: bar.height }}
+                      transition={{ duration: 0.8, ease: "easeOut" }}
+                      className={`rounded-none transition-colors cursor-pointer w-full ${
+                        bar.label === 'OCT' 
+                          ? 'bg-zinc-700 dark:bg-zinc-300 hover:bg-zinc-600 dark:hover:bg-zinc-100' 
+                          : 'bg-zinc-300 dark:bg-zinc-600 hover:bg-zinc-400 dark:hover:bg-zinc-500'
+                      }`}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
             
             {/* Chart Labels */}
             <div className="flex justify-between mt-4 px-2 text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
@@ -675,7 +823,7 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
           </div>
 
           {/* D3 Historical Yield and Repayment Performance Line Chart */}
-          <D3LineChart invoices={invoices} theme={theme} walletAddress={walletAddress} />
+          <D3LineChart invoices={invoices} theme={theme} walletAddress={walletAddress} isLoading={isLoading} />
 
           {/* Market Sentiment Widget */}
           <div className="bg-white p-6 rounded-none border border-black/10 shadow-sm flex flex-col gap-5 text-left">
@@ -932,7 +1080,22 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
                   </div>
                   
                   <div className="border border-black/10 bg-[#f5f3f0] divide-y divide-black/5 max-h-52 overflow-y-auto" id="calc-invoices-list">
-                    {invoices.length === 0 ? (
+                    {isLoading ? (
+                      <div className="p-4 space-y-3 animate-pulse">
+                        {[1, 2, 3].map(idx => (
+                          <div key={idx} className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-3.5 h-3.5 bg-zinc-200"></div>
+                              <div className="space-y-1">
+                                <div className="w-16 h-2.5 bg-zinc-200"></div>
+                                <div className="w-24 h-2 bg-zinc-200"></div>
+                              </div>
+                            </div>
+                            <div className="w-12 h-3 bg-zinc-200"></div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : invoices.length === 0 ? (
                       <div className="p-4 text-center text-xs font-mono text-zinc-400 uppercase">
                         No active invoices found on the ledger.
                       </div>
@@ -1540,28 +1703,48 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
               </button>
             </div>
             
-            <ul className="space-y-4">
-              {activities.map((act) => (
-                <li key={act.id} className="flex items-center gap-3 text-left">
-                  <div className="w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-mono shrink-0">
-                    {act.type === 'approval' ? '✓' : act.type === 'repayment' ? '$' : '⚙'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-zinc-800 truncate">{act.title}</p>
-                    <div className="flex flex-wrap items-center gap-x-1.5 text-[9px] font-mono text-zinc-400 uppercase tracking-wider mt-0.5">
-                      <span>{act.timestamp}</span>
-                      <span>•</span>
-                      <span className="text-zinc-500 font-bold bg-[#f5f3f0] px-1">Fee: 0.0001 XLM</span>
+            {isLoading ? (
+              <div className="space-y-4 animate-pulse" id="activities-loading">
+                {[1, 2, 3].map(idx => (
+                  <div key={idx} className="flex items-center gap-3 text-left">
+                    <div className="w-6 h-6 bg-zinc-200 shrink-0"></div>
+                    <div className="flex-1 space-y-1">
+                      <div className="h-3 bg-zinc-200 w-3/4"></div>
+                      <div className="h-2 bg-zinc-100 w-1/2"></div>
                     </div>
                   </div>
-                  {act.amount && (
-                    <span className="text-xs font-mono font-bold text-black shrink-0">
-                      {act.amount}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+            ) : activities.length === 0 ? (
+              <div className="p-6 text-center bg-zinc-50 border border-black/5" id="activities-empty">
+                <Clock className="w-6 h-6 mx-auto mb-2 text-zinc-300 stroke-1" />
+                <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-600">No Ledger Activity</p>
+                <p className="text-[10px] font-sans text-zinc-400 mt-1">Stellar network transactions and audit events will appear here.</p>
+              </div>
+            ) : (
+              <ul className="space-y-4">
+                {activities.map((act) => (
+                  <li key={act.id} className="flex items-center gap-3 text-left">
+                    <div className="w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-mono shrink-0">
+                      {act.type === 'approval' ? '✓' : act.type === 'repayment' ? '$' : '⚙'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-zinc-800 truncate">{act.title}</p>
+                      <div className="flex flex-wrap items-center gap-x-1.5 text-[9px] font-mono text-zinc-400 uppercase tracking-wider mt-0.5">
+                        <span>{act.timestamp}</span>
+                        <span>•</span>
+                        <span className="text-zinc-500 font-bold bg-[#f5f3f0] px-1">Fee: 0.0001 XLM</span>
+                      </div>
+                    </div>
+                    {act.amount && (
+                      <span className="text-xs font-mono font-bold text-black shrink-0">
+                        {act.amount}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </div>
@@ -1692,65 +1875,105 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
               </div>
             </div>
 
-            {/* Calendar Grid */}
-            <div className="grid grid-cols-7 gap-px bg-zinc-200 border border-black/10 min-w-[600px]">
-              {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((day) => (
-                <div key={day} className="bg-[#f5f3f0] p-2 text-center text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">
-                  {day}
-                </div>
-              ))}
-              
-              {/* Blank leading days */}
-              {Array.from({ length: new Date(calendarYear, calendarMonth, 1).getDay() }).map((_, idx) => (
-                <div key={`blank-${idx}`} className="bg-zinc-50/50 min-h-[110px] p-2 text-zinc-300 font-mono text-[10px] select-none" />
-              ))}
-
-              {/* Day cells */}
-              {Array.from({ length: new Date(calendarYear, calendarMonth + 1, 0).getDate() }).map((_, idx) => {
-                const day = idx + 1;
-                // Find invoices for this day
-                const dayInvoices = filteredInvoices.filter(inv => {
-                  const d = new Date(Date.parse(inv.dueDate));
-                  return d.getFullYear() === calendarYear && d.getMonth() === calendarMonth && d.getDate() === day;
-                });
-
-                return (
-                  <div key={`day-${day}`} className="bg-white min-h-[110px] p-2 border-t border-l border-zinc-100 flex flex-col justify-between hover:bg-zinc-50/80 transition-colors">
-                    <span className="text-[10px] font-mono font-bold text-zinc-400">{day}</span>
-                    <div className="flex flex-col gap-1.5 mt-2">
-                      {dayInvoices.map((inv) => (
-                        <div
-                          key={inv.id}
-                          className={`p-1.5 border text-[10px] font-mono flex flex-col gap-0.5 leading-tight ${
-                            inv.status === 'Due Soon'
-                              ? 'bg-red-50 border-red-200 text-red-900 font-bold'
-                              : inv.status === 'Funded'
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                              : 'bg-zinc-50 border-zinc-200 text-zinc-800'
-                          }`}
-                        >
-                          <span className="font-bold truncate">{inv.id}</span>
-                          <span className="truncate text-[9px] opacity-80">{inv.partnerName}</span>
-                          <span className="font-bold text-[9px] mt-0.5">${inv.amount.toLocaleString()}</span>
-                          
-                          {inv.status === 'Due Soon' && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSettlingInvoice(inv);
-                              }}
-                              className="mt-1 bg-black hover:bg-zinc-800 text-white text-[8px] py-1 px-1.5 font-mono uppercase tracking-wider font-bold transition-all cursor-pointer text-center"
-                            >
-                              Settle
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+            {isLoading ? (
+              <div className="grid grid-cols-7 gap-px bg-zinc-200 border border-black/10 min-w-[600px] animate-pulse">
+                {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((day) => (
+                  <div key={day} className="bg-[#f5f3f0] p-2 text-center text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest">
+                    {day}
                   </div>
-                );
-              })}
-            </div>
+                ))}
+                {Array.from({ length: 28 }).map((_, idx) => (
+                  <div key={`cal-skel-${idx}`} className="bg-white min-h-[110px] p-2 flex flex-col justify-between">
+                    <div className="w-4 h-3 bg-zinc-200"></div>
+                    {idx % 4 === 0 && (
+                      <div className="h-10 bg-zinc-100 p-1.5 space-y-1">
+                        <div className="w-12 h-2 bg-zinc-200"></div>
+                        <div className="w-16 h-2 bg-zinc-200"></div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : loadError ? (
+              <div className="p-8 text-center bg-red-50/50 border border-red-200 min-w-[600px]">
+                <AlertTriangle className="w-7 h-7 mx-auto mb-2 text-red-600 stroke-1" />
+                <p className="font-mono text-xs font-bold uppercase tracking-wider text-red-900">
+                  Failed to Load Calendar Data
+                </p>
+                <p className="text-xs text-zinc-500 font-sans mt-1">
+                  {loadError}
+                </p>
+                {onRetry && (
+                  <button
+                    onClick={onRetry}
+                    className="mt-3 inline-flex items-center gap-1.5 bg-black hover:bg-zinc-800 text-white px-3.5 py-1.5 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Retry Sync
+                  </button>
+                )}
+              </div>
+            ) : (
+              /* Calendar Grid */
+              <div className="grid grid-cols-7 gap-px bg-zinc-200 border border-black/10 min-w-[600px]">
+                {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((day) => (
+                  <div key={day} className="bg-[#f5f3f0] p-2 text-center text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">
+                    {day}
+                  </div>
+                ))}
+                
+                {/* Blank leading days */}
+                {Array.from({ length: new Date(calendarYear, calendarMonth, 1).getDay() }).map((_, idx) => (
+                  <div key={`blank-${idx}`} className="bg-zinc-50/50 min-h-[110px] p-2 text-zinc-300 font-mono text-[10px] select-none" />
+                ))}
+
+                {/* Day cells */}
+                {Array.from({ length: new Date(calendarYear, calendarMonth + 1, 0).getDate() }).map((_, idx) => {
+                  const day = idx + 1;
+                  // Find invoices for this day
+                  const dayInvoices = filteredInvoices.filter(inv => {
+                    const d = new Date(Date.parse(inv.dueDate));
+                    return d.getFullYear() === calendarYear && d.getMonth() === calendarMonth && d.getDate() === day;
+                  });
+
+                  return (
+                    <div key={`day-${day}`} className="bg-white min-h-[110px] p-2 border-t border-l border-zinc-100 flex flex-col justify-between hover:bg-zinc-50/80 transition-colors">
+                      <span className="text-[10px] font-mono font-bold text-zinc-400">{day}</span>
+                      <div className="flex flex-col gap-1.5 mt-2">
+                        {dayInvoices.map((inv) => (
+                          <div
+                            key={inv.id}
+                            className={`p-1.5 border text-[10px] font-mono flex flex-col gap-0.5 leading-tight ${
+                              inv.status === 'Due Soon'
+                                ? 'bg-red-50 border-red-200 text-red-900 font-bold'
+                                : inv.status === 'Funded'
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                                : 'bg-zinc-50 border-zinc-200 text-zinc-800'
+                            }`}
+                          >
+                            <span className="font-bold truncate">{inv.id}</span>
+                            <span className="truncate text-[9px] opacity-80">{inv.partnerName}</span>
+                            <span className="font-bold text-[9px] mt-0.5">${inv.amount.toLocaleString()}</span>
+                            
+                            {inv.status === 'Due Soon' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSettlingInvoice(inv);
+                                }}
+                                className="mt-1 bg-black hover:bg-zinc-800 text-white text-[8px] py-1 px-1.5 font-mono uppercase tracking-wider font-bold transition-all cursor-pointer text-center"
+                              >
+                                Settle
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : (
           <div className="bg-white rounded-none border border-black/10 shadow-sm overflow-hidden w-full">
@@ -1767,12 +1990,74 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 text-xs text-zinc-600">
-                  {filteredInvoices.length === 0 ? (
+                  {isLoading ? (
+                    Array.from({ length: 5 }).map((_, idx) => (
+                      <tr key={idx} className="animate-pulse">
+                        <td className="px-6 py-4"><div className="h-3 w-16 bg-zinc-200" /></td>
+                        <td className="px-6 py-4"><div className="h-4 w-32 bg-zinc-200" /></td>
+                        <td className="px-6 py-4"><div className="h-3 w-20 bg-zinc-200" /></td>
+                        <td className="px-6 py-4"><div className="h-3 w-24 bg-zinc-200" /></td>
+                        <td className="px-6 py-4"><div className="h-5 w-16 bg-zinc-200" /></td>
+                        <td className="px-6 py-4 text-right"><div className="h-6 w-20 bg-zinc-200 ml-auto" /></td>
+                      </tr>
+                    ))
+                  ) : loadError ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-10 text-zinc-400 font-mono text-xs uppercase tracking-wider">
-                        No matching records on-chain.
+                      <td colSpan={6} className="text-center py-12 text-zinc-500">
+                        <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-red-600 stroke-1" />
+                        <p className="font-mono text-xs font-bold uppercase tracking-wider text-red-900">
+                          Failed to Load Receivables
+                        </p>
+                        <p className="text-[11px] font-sans text-zinc-500 mt-1 max-w-sm mx-auto">
+                          {loadError}
+                        </p>
+                        {onRetry && (
+                          <button
+                            onClick={onRetry}
+                            className="mt-4 inline-flex items-center gap-1.5 bg-black hover:bg-zinc-800 text-white px-4 py-2 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Retry Synchronization
+                          </button>
+                        )}
                       </td>
                     </tr>
+                  ) : filteredInvoices.length === 0 ? (
+                    invoices.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-16 text-zinc-400">
+                          <FileText className="w-8 h-8 mx-auto mb-3 text-zinc-300 stroke-1" />
+                          <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-700">No Receivables on Ledger</p>
+                          <p className="text-[11px] font-sans text-zinc-400 mt-1 max-w-sm mx-auto">
+                            The verified receivables ledger currently has no active invoices registered.
+                          </p>
+                          <button
+                            onClick={() => setIsSubmitModalOpen(true)}
+                            className="mt-4 inline-flex items-center gap-2 bg-black hover:bg-zinc-800 text-white px-4 py-2 font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                          >
+                            <PlusCircle className="w-3.5 h-3.5" />
+                            Submit Receivable
+                          </button>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="text-center py-14 text-zinc-400">
+                          <Search className="w-7 h-7 mx-auto mb-2.5 text-zinc-300 stroke-1" />
+                          <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-700">No Matching Receivables</p>
+                          <p className="text-[11px] font-sans text-zinc-400 mt-1 max-w-sm mx-auto">
+                            No receivables matched your search query "{searchTerm}".
+                          </p>
+                          <button
+                            onClick={() => setSearchTerm('')}
+                            className="mt-3 inline-flex items-center gap-1.5 border border-black/10 hover:border-black bg-white text-black px-3.5 py-1.5 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                            Clear Search Filter
+                          </button>
+                        </td>
+                      </tr>
+                    )
                   ) : (
                     filteredInvoices.map((inv) => (
                       <tr key={inv.id} className="hover:bg-zinc-50 transition-colors">
@@ -2006,25 +2291,118 @@ export default function Dashboard({ invoices, investments = [], activities, onSu
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-black/5 text-xs font-mono">
-                    {filteredInvestments.length === 0 ? (
+                    {isLoading ? (
+                      Array.from({ length: 5 }).map((_, idx) => (
+                        <tr key={idx} className="animate-pulse">
+                          <td className="px-6 py-4"><div className="h-3 w-16 bg-zinc-200" /><div className="h-2 w-20 bg-zinc-100 mt-1" /></td>
+                          <td className="px-6 py-4"><div className="h-4 w-32 bg-zinc-200" /><div className="h-2 w-16 bg-zinc-100 mt-1" /></td>
+                          <td className="px-6 py-4"><div className="h-3 w-24 bg-zinc-200" /></td>
+                          <td className="px-6 py-4 text-right"><div className="h-3 w-16 bg-zinc-200 ml-auto" /></td>
+                          <td className="px-6 py-4 text-right"><div className="h-3 w-12 bg-zinc-200 ml-auto" /></td>
+                          <td className="px-6 py-4 text-right"><div className="h-3 w-14 bg-zinc-200 ml-auto" /></td>
+                          <td className="px-6 py-4 text-right"><div className="h-3 w-16 bg-zinc-200 ml-auto" /></td>
+                          <td className="px-6 py-4 text-right"><div className="h-3 w-20 bg-zinc-200 ml-auto" /></td>
+                          <td className="px-6 py-4 text-center"><div className="h-5 w-16 bg-zinc-200 mx-auto" /></td>
+                          <td className="px-6 py-4 text-right"><div className="h-4 w-12 bg-zinc-200 ml-auto" /></td>
+                        </tr>
+                      ))
+                    ) : loadError ? (
                       <tr>
-                        <td colSpan={10} className="px-6 py-16 text-center text-zinc-400">
-                          <Coins className="w-8 h-8 mx-auto mb-3 text-zinc-300 stroke-1" />
-                          <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-600">No Investment Positions Found</p>
-                          <p className="text-[11px] font-sans text-zinc-400 mt-1 max-w-sm mx-auto">
-                            {investmentFilterScope === 'my' 
-                              ? "You haven't allocated capital to any receivables with this wallet yet."
-                              : "No positions match the specified filters or search query."}
+                        <td colSpan={10} className="px-6 py-14 text-center text-zinc-500">
+                          <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-red-600 stroke-1" />
+                          <p className="font-mono text-xs font-bold uppercase tracking-wider text-red-900">
+                            Failed to Load Positions Ledger
                           </p>
-                          <button
-                            onClick={() => setView('marketplace')}
-                            className="mt-4 inline-flex items-center gap-2 bg-black hover:bg-zinc-800 text-white px-4 py-2 font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
-                          >
-                            Explore Marketplace
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </button>
+                          <p className="text-[11px] font-sans text-zinc-500 mt-1 max-w-sm mx-auto">
+                            {loadError}
+                          </p>
+                          {onRetry && (
+                            <button
+                              onClick={onRetry}
+                              className="mt-4 inline-flex items-center gap-1.5 bg-black hover:bg-zinc-800 text-white px-4 py-2 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              Retry Ledger Sync
+                            </button>
+                          )}
                         </td>
                       </tr>
+                    ) : filteredInvestments.length === 0 ? (
+                      isNewInvestor ? (
+                        /* Clear onboarding empty state specifically for new investors with no positions */
+                        <tr>
+                          <td colSpan={10} className="px-6 py-16 text-center text-zinc-400" id="new-investor-empty-state">
+                            <Coins className="w-8 h-8 mx-auto mb-3 text-zinc-400 stroke-1" />
+                            <p className="font-mono text-sm font-bold uppercase tracking-wider text-black">
+                              No Investment Positions Yet
+                            </p>
+                            <p className="text-xs font-sans text-zinc-500 mt-1.5 max-w-md mx-auto leading-relaxed">
+                              You haven't allocated capital to any receivables on the Stellar ledger with this wallet yet. Browse verified commercial invoices to fund positions and earn fixed APY yields.
+                            </p>
+                            <div className="mt-5 flex items-center justify-center gap-3">
+                              <button
+                                onClick={() => setView('marketplace')}
+                                className="inline-flex items-center gap-2 bg-black hover:bg-zinc-800 text-white px-5 py-2.5 font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                              >
+                                <span>Browse Marketplace</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                              {investments.length > 0 && (
+                                <button
+                                  onClick={() => setInvestmentFilterScope('all')}
+                                  className="border border-black/10 hover:border-black bg-white text-black px-4 py-2 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer"
+                                >
+                                  View Global Positions ({investments.length})
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ) : isInvestmentFilterEmpty ? (
+                        /* When filters or searches yielded 0 results, but positions exist in scope */
+                        <tr>
+                          <td colSpan={10} className="px-6 py-14 text-center text-zinc-400" id="investments-filter-empty-state">
+                            <Search className="w-7 h-7 mx-auto mb-2.5 text-zinc-300 stroke-1" />
+                            <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-700">
+                              No Matching Positions
+                            </p>
+                            <p className="text-[11px] font-sans text-zinc-400 mt-1 max-w-sm mx-auto">
+                              No investment positions match your active filter criteria
+                              {investmentSearchTerm ? ` and search "${investmentSearchTerm}"` : ''}.
+                            </p>
+                            <button
+                              onClick={() => {
+                                setInvestmentSearchTerm('');
+                                setInvestmentStatusFilter('all');
+                              }}
+                              className="mt-3.5 inline-flex items-center gap-1.5 border border-black/10 hover:border-black bg-white text-black px-3.5 py-1.5 font-mono text-[9px] uppercase tracking-wider font-bold transition-all cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                              Reset Position Filters
+                            </button>
+                          </td>
+                        </tr>
+                      ) : (
+                        /* When the platform has zero investments at all */
+                        <tr>
+                          <td colSpan={10} className="px-6 py-16 text-center text-zinc-400">
+                            <Coins className="w-8 h-8 mx-auto mb-3 text-zinc-300 stroke-1" />
+                            <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-600">
+                              No Investment Positions Recorded
+                            </p>
+                            <p className="text-[11px] font-sans text-zinc-400 mt-1 max-w-sm mx-auto">
+                              The platform investment ledger has no capital allocations on record yet.
+                            </p>
+                            <button
+                              onClick={() => setView('marketplace')}
+                              className="mt-4 inline-flex items-center gap-2 bg-black hover:bg-zinc-800 text-white px-4 py-2 font-mono text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                            >
+                              Explore Marketplace
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
                     ) : (
                       filteredInvestments.map((invst) => {
                         const invData = invoices.find(i => i.id === invst.invoiceId);

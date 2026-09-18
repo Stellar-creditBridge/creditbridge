@@ -7,6 +7,7 @@ interface D3LineChartProps {
   invoices: Invoice[];
   theme?: string;
   walletAddress?: string;
+  isLoading?: boolean;
 }
 
 interface DataPoint {
@@ -15,7 +16,7 @@ interface DataPoint {
   repaidVolume: number;   // volume in USD
 }
 
-export default function D3LineChart({ invoices, theme, walletAddress }: D3LineChartProps) {
+export default function D3LineChart({ invoices, theme, walletAddress, isLoading = false }: D3LineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [metric, setMetric] = useState<'both' | 'yield' | 'repaid'>('both');
@@ -372,7 +373,23 @@ export default function D3LineChart({ invoices, theme, walletAddress }: D3LineCh
       </div>
 
       {/* SVG Stage */}
-      <div className="w-full overflow-hidden">
+      <div className="w-full overflow-hidden relative">
+        {isLoading && (
+          <div className="absolute inset-0 z-10 bg-white/80 flex flex-col justify-between p-4 animate-pulse">
+            <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400">
+              <span>Loading historical yield series...</span>
+              <span className="w-16 h-3 bg-zinc-200"></span>
+            </div>
+            <div className="h-44 w-full flex items-end justify-between gap-4 px-2">
+              {[30, 45, 60, 50, 70, 85].map((h, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
+                  <div style={{ height: `${h}%` }} className="w-full bg-zinc-200"></div>
+                  <div className="w-8 h-2 bg-zinc-100"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <svg ref={svgRef} className="w-full h-[280px]" />
       </div>
 
